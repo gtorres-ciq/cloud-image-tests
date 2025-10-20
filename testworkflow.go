@@ -105,6 +105,8 @@ type TestWorkflowOpts struct {
 	// true, the zone from the command line will be enforced if the test suite
 	// does specify a zone. If false, the hardcoded zone will be used.
 	ArgZoneOverride bool
+	// CustomStartupScript is a path to a file containing a custom startup script.
+	CustomStartupScript string
 }
 
 // TestWorkflow defines a test workflow which creates at least one test VM.
@@ -213,6 +215,15 @@ func (t *TestWorkflow) addNewVMStep(disks []*compute.Disk, instanceParams *daisy
 		instance.Metadata = make(map[string]string)
 	}
 
+	// Add custom startup script content as metadata if specified
+	if t.customStartupScriptContent != "" {
+		if isWindows {
+			instance.Metadata["windows-startup-script-ps1"] = t.customStartupScriptContent
+		} else {
+			instance.Metadata["startup-script"] = t.customStartupScriptContent
+		}
+	}
+
 	t.setInstanceTestMetadata(instance, suffix)
 	t.skipWindowsStagingKMS(isWindows, instance)
 
@@ -276,6 +287,15 @@ func (t *TestWorkflow) appendCreateVMStep(disks []*compute.Disk, instanceParams 
 		instance.Metadata = make(map[string]string)
 	}
 
+	// Add custom startup script content as metadata if specified
+	if t.customStartupScriptContent != "" {
+		if isWindows {
+			instance.Metadata["windows-startup-script-ps1"] = t.customStartupScriptContent
+		} else {
+			instance.Metadata["startup-script"] = t.customStartupScriptContent
+		}
+	}
+
 	t.setInstanceTestMetadata(instance, suffix)
 	t.skipWindowsStagingKMS(isWindows, instance)
 
@@ -337,6 +357,16 @@ func (t *TestWorkflow) appendCreateVMStepBeta(disks []*compute.Disk, instance *d
 
 	if instance.Metadata == nil {
 		instance.Metadata = make(map[string]string)
+	}
+
+	// Add custom startup script content as metadata if specified
+	if t.customStartupScriptContent != "" {
+		isWindows := utils.HasFeature(t.Image, "WINDOWS")
+		if isWindows {
+			instance.Metadata["windows-startup-script-ps1"] = t.customStartupScriptContent
+		} else {
+			instance.Metadata["startup-script"] = t.customStartupScriptContent
+		}
 	}
 
 	instance.Metadata["_test_vmname"] = name
@@ -874,6 +904,16 @@ func NewTestWorkflow(opts *TestWorkflowOpts, setupFunc func(*TestWorkflow) error
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	// Read custom startup script file if specified
+	if opts.CustomStartupScript != "" {
+		content, err := ioutil.ReadFile(opts.CustomStartupScript)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read custom startup script file %s: %v", opts.CustomStartupScript, err)
+		}
+		t.customStartupScriptContent = string(content)
+		log.Printf("Loaded custom startup script from %s (%d bytes)", opts.CustomStartupScript, len(content))
 	}
 
 	t.wf = daisy.New()

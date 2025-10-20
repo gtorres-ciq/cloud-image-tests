@@ -519,6 +519,20 @@ func (t *TestVM) AddMetadata(key, value string) {
 	}
 }
 
+// getMetadata retrieves the value of a metadata key, or empty string if not found.
+func (t *TestVM) getMetadata(key string) string {
+	if t.instance != nil {
+		if t.instance.Metadata != nil {
+			return t.instance.Metadata[key]
+		}
+	} else if t.instancebeta != nil {
+		if t.instancebeta.Metadata != nil {
+			return t.instancebeta.Metadata[key]
+		}
+	}
+	return ""
+}
+
 // AddScope adds the specified auth scope to the service account on the VM.
 func (t *TestVM) AddScope(scope string) {
 	if t.instance != nil {
@@ -546,12 +560,22 @@ func (t *TestVM) RunTests(runtest string) {
 }
 
 // SetShutdownScript sets the `shutdown-script` metadata key for a non-Windows VM.
+// If a shutdown-script already exists (e.g., from custom_startup_script), this appends to it.
 func (t *TestVM) SetShutdownScript(script string) {
+	existing := t.getMetadata("shutdown-script")
+	if existing != "" {
+		script = existing + "\n" + script
+	}
 	t.AddMetadata("shutdown-script", script)
 }
 
 // SetWindowsShutdownScript sets the `windows-shutdown-script-ps1` metadata key for a Windows VM.
+// If a windows-shutdown-script-ps1 already exists (e.g., from custom_startup_script), this appends to it.
 func (t *TestVM) SetWindowsShutdownScript(script string) {
+	existing := t.getMetadata("windows-shutdown-script-ps1")
+	if existing != "" {
+		script = existing + "\n" + script
+	}
 	t.AddMetadata("windows-shutdown-script-ps1", script)
 }
 
@@ -592,12 +616,22 @@ func (t *TestVM) SetWindowsSysprepScriptURL(script string) error {
 }
 
 // SetStartupScript sets the `startup-script` metadata key for a VM. On Windows VMs, this script does not run on startup: different guest attributes must be set.
+// If a startup-script already exists (e.g., from custom_startup_script), this appends to it.
 func (t *TestVM) SetStartupScript(script string) {
+	existing := t.getMetadata("startup-script")
+	if existing != "" {
+		script = existing + "\n" + script
+	}
 	t.AddMetadata("startup-script", script)
 }
 
 // SetWindowsStartupScript sets the `windows-startup-script-ps1` metadata key for a VM.
+// If a windows-startup-script-ps1 already exists (e.g., from custom_startup_script), this appends to it.
 func (t *TestVM) SetWindowsStartupScript(script string) {
+	existing := t.getMetadata("windows-startup-script-ps1")
+	if existing != "" {
+		script = existing + "\n" + script
+	}
 	t.AddMetadata("windows-startup-script-ps1", script)
 }
 
