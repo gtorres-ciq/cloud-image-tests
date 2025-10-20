@@ -116,6 +116,7 @@ var (
 	externalIP              = flag.String("external_ip", "", "External IP to use for VMs (ephemeral or none). defaults to ephemeral.")
 	networkFlag             = flag.String("network", "", "The network/VPC to use for VMs. Defaults to default network global/networks/default.")
 	subnet                  = flag.String("subnet", "", "The subnet to use for VMs. Defaults to default network global/networks/default. If the network is in auto subnet mode, the subnetwork is optional. If the network is in custom subnet mode, then this flag should be specified.")
+	customStartupScript     = flag.String("custom_startup_script", "", "Path to file containing commands to run before tests on each VM")
 
 	// zonesRoundRobinIdx points to an index in the list of zones.
 	// This is used to distribute tests across the list of zones in a round robin fashion,
@@ -589,6 +590,7 @@ func main() {
 				ExternalIP:              *externalIP,
 				Network:                 *networkFlag,
 				Subnet:                  *subnet,
+				CustomStartupScript:     *customStartupScript,
 			}, testPackage.setupFunc)
 			if err != nil {
 				log.Fatalf("Failed to create test workflow: %v", err)
