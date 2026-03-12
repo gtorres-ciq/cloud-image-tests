@@ -155,6 +155,10 @@ type TestWorkflow struct {
 	opts *TestWorkflowOpts
 	// SetupFunc is an optional function that is called once at the beginning of the test workflow.
 	SetupFunc func(*TestWorkflow) error
+	// customStartupScriptContent is the content of the custom startup script file.
+	customStartupScriptContent string
+	// testSkipReasons stores per-test skip reasons for tests that are not run.
+	testSkipReasons map[string]string
 }
 
 func (t *TestWorkflow) setInstanceTestMetadata(instance *daisy.Instance, suffix string) {
@@ -1297,7 +1301,11 @@ func parseResult(res testResult, localPath string) junit.Testsuite {
 			newTc := junit.Testcase{}
 			newTc.Classname = name
 			newTc.Name = test
-			newTc.Skipped = &junit.Result{Data: fmt.Sprintf("%s disabled on %s", test, res.testWorkflow.ImageURL)}
+			skipMsg := fmt.Sprintf("%s disabled on %s", test, res.testWorkflow.ImageURL)
+			if reason, ok := res.testWorkflow.testSkipReasons[test]; ok {
+				skipMsg = fmt.Sprintf("%s skipped on %s: %s", test, res.testWorkflow.ImageURL, reason)
+			}
+			newTc.Skipped = &junit.Result{Data: skipMsg}
 			ret.Testcases = append(ret.Testcases, newTc)
 			ret.Tests++
 			ret.Skipped++
