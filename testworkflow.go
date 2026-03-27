@@ -25,6 +25,7 @@ import (
 	"math/rand"
 	"path"
 	"sort"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1420,4 +1421,40 @@ func recreateTestWorkflow(old *TestWorkflow, zone string) (*TestWorkflow, error)
 		}
 	}
 	return newTest, nil
+}
+
+// HasCustomStartupScript returns true if a custom startup script is configured.
+func (t *TestWorkflow) HasCustomStartupScript() bool {
+	return t.customStartupScriptContent != ""
+}
+
+// TestsExcluded checks if the given test names are all matched by the exclude
+// filter. This can be used in TestSetup to avoid creating VMs for tests that
+// will be skipped.
+func (t *TestWorkflow) TestsExcluded(tests ...string) bool {
+	if t.testExcludeFilter == "" {
+		return false
+	}
+	r, err := regexp.Compile(t.testExcludeFilter)
+	if err != nil {
+		return false
+	}
+	for _, test := range tests {
+		if !r.MatchString(test) {
+			return false
+		}
+	}
+	return true
+}
+
+// SkipTests records a skip reason for the given tests. Tests listed here that
+// are not executed will have the reason shown in the JUnit XML output instead
+// of the generic "disabled" message.
+func (t *TestWorkflow) SkipTests(reason string, tests ...string) {
+	if t.testSkipReasons == nil {
+		t.testSkipReasons = make(map[string]string)
+	}
+	for _, test := range tests {
+		t.testSkipReasons[test] = reason
+	}
 }
