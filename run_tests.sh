@@ -113,6 +113,7 @@ SHAPES=("${X86_SHAPES[@]}")
 IMAGES=("${X86_IMAGES[@]}")
 SHAPE_ARG="-x86_shape"
 PARALLEL_RUN_COUNT=20
+USER_PROVIDED_REGIONS=false
 
 # parse arguments to override which shapes and images to test
 while [[ $# -gt 0 ]]; do
@@ -126,6 +127,7 @@ while [[ $# -gt 0 ]]; do
         --regions)
             shift
             IFS=',' read -r -a MAN_REGIONS <<< "$1"
+            USER_PROVIDED_REGIONS=true
             shift
             ;;
         --shapes)
@@ -300,28 +302,38 @@ for shape in "${SHAPES[@]}"; do
             done
         done
     elif [[ "$shape" == n4a-standard* ]]; then
-        CHECK_REGIONS=("us-central1-b")
+        if ! $USER_PROVIDED_REGIONS; then
+            CHECK_REGIONS=("us-central1-b")
+        fi
     elif [[ "$shape" == c4d-standard* ]]; then
-        for i in "${!CHECK_REGIONS[@]}"; do
-            if [[ ${CHECK_REGIONS[i]} == "europe-west1-c" ]] || [[ ${CHECK_REGIONS[i]} == "europe-west1-d" ]] || [[ ${CHECK_REGIONS[i]} == "us-central1-c" ]]; then
-                unset 'CHECK_REGIONS[i]'
-            fi
-        done
-    elif [[ "$shape" == n4d-standard* ]]; then
-        CHECK_REGIONS=("us-central1-a" "us-central1-b" "us-central1-c" "us-east1-b" "us-east1-d" "europe-west1-c" "europe-west4-a" "europe-west4-b")
-    # If shape == t2a-standard-2, remove
-    elif [[ "$shape" == t2a-standard* ]]; then
-        CHECK_REGIONS=("us-central1-a" "us-central1-b" "us-central1-f" "europe-west4-a" "europe-west4-b" "europe-west4-c" "asia-southeast1-b" "asia-southeast1-c")
-    # There's never enough c4d capacity in europe-west4-b, so remove it from the list
-    elif [[ "$shape" == c4d-standard* ]]; then
-        delete=(europe-west1-b europe-west1-c europe-west1-d europe-west4-b)
-        for target in "${delete[@]}"; do
+        if ! $USER_PROVIDED_REGIONS; then
             for i in "${!CHECK_REGIONS[@]}"; do
-                if [[ ${CHECK_REGIONS[i]} = $target ]]; then
+                if [[ ${CHECK_REGIONS[i]} == "europe-west1-c" ]] || [[ ${CHECK_REGIONS[i]} == "europe-west1-d" ]] || [[ ${CHECK_REGIONS[i]} == "us-central1-c" ]]; then
                     unset 'CHECK_REGIONS[i]'
                 fi
             done
-        done
+        fi
+    elif [[ "$shape" == n4d-standard* ]]; then
+        if ! $USER_PROVIDED_REGIONS; then
+            CHECK_REGIONS=("us-central1-a" "us-central1-b" "us-central1-c" "us-east1-b" "us-east1-d" "europe-west1-c" "europe-west4-a" "europe-west4-b")
+        fi
+    # If shape == t2a-standard-2, remove
+    elif [[ "$shape" == t2a-standard* ]]; then
+        if ! $USER_PROVIDED_REGIONS; then
+            CHECK_REGIONS=("us-central1-a" "us-central1-b" "us-central1-f" "europe-west4-a" "europe-west4-b" "europe-west4-c" "asia-southeast1-b" "asia-southeast1-c")
+        fi
+    # There's never enough c4d capacity in europe-west4-b, so remove it from the list
+    elif [[ "$shape" == c4d-standard* ]]; then
+        if ! $USER_PROVIDED_REGIONS; then
+            delete=(europe-west1-b europe-west1-c europe-west1-d europe-west4-b)
+            for target in "${delete[@]}"; do
+                for i in "${!CHECK_REGIONS[@]}"; do
+                    if [[ ${CHECK_REGIONS[i]} = $target ]]; then
+                        unset 'CHECK_REGIONS[i]'
+                    fi
+                done
+            done
+        fi
     fi
     if [[ "$shape" == n4-highcpu-* ]] || [[ "$shape" == c3-highcpu-* ]] || [[ "$shape" == c4-highcpu-* ]] || [[ "$shape" == n2-highcpu-* ]]; then
         # For highcpu shapes, limit tests to network, ssh, loadbalancer, metadata, and imageboot
@@ -346,7 +358,7 @@ for shape in "${SHAPES[@]}"; do
         fi
         for testrun in "${CHECK_TESTS[@]}"; do
             # For c4-standard* shapes, remove us-central1-* regions from hotattach tests due to known issues
-            if [[ "$shape" == c4-standard* ]] && [[ "$testrun" == "hotattach" ]]; then
+            if ! $USER_PROVIDED_REGIONS && [[ "$shape" == c4-standard* ]] && [[ "$testrun" == "hotattach" ]]; then
                 delete=(us-central1-a us-central1-b us-central1-c us-central1-f)
                 for target in "${delete[@]}"; do
                     for i in "${!CHECK_REGIONS[@]}"; do
