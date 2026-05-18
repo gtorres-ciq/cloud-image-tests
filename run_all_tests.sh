@@ -241,6 +241,9 @@ done
 # ---------------------------------------------------------------------------
 # Failure details
 # ---------------------------------------------------------------------------
+infra_total=0
+real_total=0
+
 if [[ $overall_fail -gt 0 ]]; then
 	echo ""
 	echo "=== Failures ==="
@@ -250,8 +253,13 @@ if [[ $overall_fail -gt 0 ]]; then
 		echo "  [$cfg]"
 		while IFS= read -r -d '' xml; do
 			if grep -q '<failure' "$xml" 2>/dev/null; then
-				echo "    $(basename "$xml" .xml):"
-				awk '
+				base=$(basename "$xml" .xml)
+				suite="${base##*_}"
+				rest="${base%_*}"
+				shape="${rest##*_}"
+				image="${rest%_*}"
+				echo "    [$shape] $image / $suite:"
+				awk_out=$(awk '
 				/<testcase / {
 					if (match($0, / name="[^"]*"/)) {
 						name = substr($0, RSTART+7, RLENGTH-8)
@@ -289,30 +297,57 @@ if [[ $overall_fail -gt 0 ]]; then
 					in_fail = 0
 					if (code != "") {
 						reason = code " (" msg ")"
+						is_infra = 1
 					} else if (attr != "") {
 						reason = attr
+						is_infra = 0
 					} else if (cdata != "") {
 						gsub(/^[[:space:]]+/, "", cdata)
 						if (length(cdata) > 80) cdata = substr(cdata, 1, 80) "..."
 						reason = cdata
+						is_infra = 0
 					} else {
 						reason = "Failed"
+						is_infra = 0
 					}
-					if (!(reason in rcount)) rfirst[reason] = name
+					if (!(reason in rcount)) {
+						rfirst[reason] = name
+						rinfra[reason] = is_infra
+					}
 					rcount[reason]++
 				}
 				END {
+					infra = 0; real = 0
 					for (r in rcount) {
+						if (rinfra[r])
+							infra += rcount[r]
+						else
+							real += rcount[r]
 						if (rcount[r] > 1)
 							printf "      %s (%d tests)\n", r, rcount[r]
 						else
 							printf "      %s: %s\n", rfirst[r], r
 					}
+					printf "###COUNTS %d %d\n", infra, real
 				}
-				' "$xml"
+				' "$xml")
+				while IFS= read -r line; do
+					if [[ "$line" == "###COUNTS "* ]]; then
+						read -r _ i r <<< "$line"
+						((infra_total += i)) || true
+						((real_total += r)) || true
+					elif [[ -n "$line" ]]; then
+						echo "$line"
+					fi
+				done <<< "$awk_out"
 			fi
 		done < <(find "$dir" -name '*.xml' -print0 2>/dev/null | sort -z)
 	done
+
+	echo ""
+	echo "=== Failure Breakdown ==="
+	printf '  Infra (VM did not launch): %d tests\n' "$infra_total"
+	printf '  Actual test failures:      %d tests\n' "$real_total"
 fi
 
 echo ""
