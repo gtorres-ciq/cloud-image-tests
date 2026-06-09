@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_DIR="$SCRIPT_DIR/tmp-logs/$(date +%Y%m%d-%H%M%S)"
 DRY_RUN=false
 SUMMARY_ONLY=false
+RESUME=false
 
 VALID_CONFIGS=(x86 arm arm-metal)
 CONFIGS=("${VALID_CONFIGS[@]}")
@@ -26,6 +27,10 @@ while [[ $# -gt 0 ]]; do
 		DRY_RUN=true
 		shift
 		;;
+	--resume)
+		RESUME=true
+		shift
+		;;
 	--summary-only)
 		SUMMARY_ONLY=true
 		shift
@@ -36,6 +41,7 @@ while [[ $# -gt 0 ]]; do
 		echo "Options:"
 		echo "  --configs <c1,c2,...>  Comma-separated configs to run (default: all)"
 		echo "  --dry-run             Print what would run, then exit"
+		echo "  --resume              Resume a previous run, reusing successful results (default: start fresh)"
 		echo "  --summary-only        Show results from existing test output, skip running tests"
 		echo ""
 		echo "Extra flags (forwarded to run_tests.sh):"
@@ -135,6 +141,13 @@ if ! $SUMMARY_ONLY; then
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
+if ! docker image inspect cloud-image-tests >/dev/null 2>&1; then
+	echo "ERROR: Docker image 'cloud-image-tests' not found locally." >&2
+	echo "Build it first with:" >&2
+	echo "  docker build -t cloud-image-tests -f Dockerfile ." >&2
+	exit 1
+fi
+
 for cfg in "${CONFIGS[@]}"; do
 	mkdir -p "$(config_dir "$cfg")"
 done
@@ -146,6 +159,12 @@ for cfg in "${CONFIGS[@]}"; do
 		echo "Wrote startup.sh to $(config_dir "$cfg")/startup.sh"
 	fi
 done
+
+if ! $RESUME; then
+	for cfg in "${CONFIGS[@]}"; do
+		find "$(config_dir "$cfg")" -name '*.xml' -delete
+	done
+fi
 
 # ---------------------------------------------------------------------------
 # Launch pipelines
