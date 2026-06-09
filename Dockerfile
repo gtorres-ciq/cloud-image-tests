@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM golang:latest as builder
+FROM golang:latest AS builder
 
 WORKDIR /build
 COPY . .
 RUN mkdir /out
 
-ENV GOOS linux
-ENV GO111MODULE on
+ENV GOOS=linux
+ENV GO111MODULE=on
 
 RUN ./local_build.sh -o /out
 
