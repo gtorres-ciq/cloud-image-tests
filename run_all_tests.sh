@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_DIR="$SCRIPT_DIR/tmp-logs/$(date +%Y%m%d-%H%M%S)"
 DRY_RUN=false
 SUMMARY_ONLY=false
-RESUME=false
+SLOWEST=0
 
 VALID_CONFIGS=(x86 arm arm-metal)
 CONFIGS=("${VALID_CONFIGS[@]}")
@@ -27,9 +27,13 @@ while [[ $# -gt 0 ]]; do
 		DRY_RUN=true
 		shift
 		;;
-	--resume)
-		RESUME=true
-		shift
+	--slowest)
+		if ! [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+			echo "ERROR: --slowest requires a numeric argument (got '${2:-}')" >&2
+			exit 1
+		fi
+		SLOWEST="$2"
+		shift 2
 		;;
 	--summary-only)
 		SUMMARY_ONLY=true
@@ -41,7 +45,7 @@ while [[ $# -gt 0 ]]; do
 		echo "Options:"
 		echo "  --configs <c1,c2,...>  Comma-separated configs to run (default: all)"
 		echo "  --dry-run             Print what would run, then exit"
-		echo "  --resume              Resume a previous run, reusing successful results (default: start fresh)"
+		echo "  --slowest <n>         Print the n slowest suites and test cases after summary"
 		echo "  --summary-only        Show results from existing test output, skip running tests"
 		echo ""
 		echo "Extra flags (forwarded to run_tests.sh):"
@@ -134,7 +138,7 @@ if $DRY_RUN; then
 	exit 0
 fi
 
-declare -A EXIT_CODES
+declare -A EXIT_CODES DURATIONS
 
 if ! $SUMMARY_ONLY; then
 
@@ -160,12 +164,6 @@ for cfg in "${CONFIGS[@]}"; do
 	fi
 done
 
-if ! $RESUME; then
-	for cfg in "${CONFIGS[@]}"; do
-		find "$(config_dir "$cfg")" -name '*.xml' -delete
-	done
-fi
-
 # ---------------------------------------------------------------------------
 # Launch pipelines
 # ---------------------------------------------------------------------------
@@ -187,7 +185,6 @@ done
 # ---------------------------------------------------------------------------
 echo ""
 echo "=== Waiting for ${#CONFIGS[@]} configurations ==="
-declare -A DURATIONS
 remaining=("${CONFIGS[@]}")
 while [[ ${#remaining[@]} -gt 0 ]]; do
 	for i in "${!remaining[@]}"; do
@@ -211,16 +208,16 @@ done
 
 fi # end ! $SUMMARY_ONLY
 
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
-echo ""
-echo "=== Results ==="
-printf '  %-15s  %-30s  %s\n' "CONFIG" "STATUS" "TESTS"
-printf '  %-15s  %-30s  %s\n' "------" "------" "-----"
+if $SUMMARY_ONLY; then
+	LOG_DIR=$(ls -dt "$SCRIPT_DIR/tmp-logs"/20* 2>/dev/null | head -1)
+fi
 
+# ---------------------------------------------------------------------------
+# Compute results
+# ---------------------------------------------------------------------------
 overall_fail=0
 declare -A STATUSES
+declare -a RESULT_ROWS
 for cfg in "${CONFIGS[@]}"; do
 	dir="$(config_dir "$cfg")"
 
@@ -253,8 +250,12 @@ for cfg in "${CONFIGS[@]}"; do
 	fi
 	STATUSES[$cfg]="$status"
 
-	printf '  %-15s  %-30s  %d passed, %d failed (%d total)\n' \
-		"$cfg" "$status" "$xml_pass" "$xml_fail" "$xml_total"
+	dur=""
+	if [[ -n "${DURATIONS[$cfg]:-}" ]]; then
+		dur=$(printf '%dm%02ds' $((DURATIONS[$cfg] / 60)) $((DURATIONS[$cfg] % 60)))
+	fi
+	RESULT_ROWS+=("$(printf '  %-15s  %-30s  %-10s  %d passed, %d failed (%d total)' \
+		"$cfg" "$status" "$dur" "$xml_pass" "$xml_fail" "$xml_total")")
 done
 
 # ---------------------------------------------------------------------------
@@ -369,8 +370,73 @@ if [[ $overall_fail -gt 0 ]]; then
 	printf '  Actual test failures:      %d tests\n' "$real_total"
 fi
 
+# ---------------------------------------------------------------------------
+# Slowest tests
+# ---------------------------------------------------------------------------
+if [[ $SLOWEST -gt 0 ]]; then
+	suite_tmp=$(mktemp)
+	case_tmp=$(mktemp)
+
+	for cfg in "${CONFIGS[@]}"; do
+		dir="$(config_dir "$cfg")"
+		while IFS= read -r -d '' xml; do
+			base=$(basename "$xml" .xml)
+			suite="${base##*_}"
+			rest="${base%_*}"
+			shape="${rest##*_}"
+			image="${rest%_*}"
+			awk -v sf="$suite_tmp" -v cf="$case_tmp" \
+				-v shape="$shape" -v image="$image" -v suite="$suite" '
+			/<testsuite / && !suite_done {
+				suite_done = 1
+				if (match($0, /time="[0-9.]+"/)) {
+					t = substr($0, RSTART+6, RLENGTH-7)
+					if (t+0 > 0) print t "\t" shape "\t" image "\t" suite >> sf
+				}
+			}
+			/<testcase / {
+				nm = ""; t = ""
+				if (match($0, /name="[^"]+"/))
+					nm = substr($0, RSTART+6, RLENGTH-7)
+				if (nm == "") next
+				if (match($0, /time="[0-9.]+"/))
+					t = substr($0, RSTART+6, RLENGTH-7)
+				if (t+0 > 0) print t "\t" shape "\t" suite "\t" nm >> cf
+			}
+			' "$xml"
+		done < <(find "$dir" -name '*.xml' -size +0 -print0 2>/dev/null)
+	done
+
+	echo ""
+	echo "=== Top $SLOWEST slowest suites ==="
+	sort -rn "$suite_tmp" -o "$suite_tmp"
+	head -"$SLOWEST" "$suite_tmp" | \
+		awk -F'\t' '{ m=int($1/60); s=int($1)%60
+			printf "  %3dm%02ds  %-20s  %-45s  %s\n", m, s, $2, $3, $4 }'
+
+	echo ""
+	echo "=== Top $SLOWEST slowest test cases ==="
+	sort -rn "$case_tmp" -o "$case_tmp"
+	head -"$SLOWEST" "$case_tmp" | \
+		awk -F'\t' '{ m=int($1/60); s=int($1)%60
+			printf "  %3dm%02ds  %-20s  %-20s  %s\n", m, s, $2, $3, $4 }'
+
+	rm -f "$suite_tmp" "$case_tmp"
+fi
+
+# ---------------------------------------------------------------------------
+# Results
+# ---------------------------------------------------------------------------
 echo ""
-echo "Logs: $LOG_DIR"
+echo "=== Results ==="
+printf '  %-15s  %-30s  %-10s  %s\n' "CONFIG" "STATUS" "DURATION" "TESTS"
+printf '  %-15s  %-30s  %-10s  %s\n' "------" "------" "--------" "-----"
+for row in "${RESULT_ROWS[@]}"; do
+	echo "$row"
+done
+
+echo ""
+[[ -n "$LOG_DIR" ]] && echo "Logs: $LOG_DIR"
 elapsed=$((SECONDS - START_SECONDS))
 printf 'Total time: %dm %02ds\n' $((elapsed / 60)) $((elapsed % 60))
 
