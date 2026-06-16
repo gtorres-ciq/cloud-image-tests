@@ -41,6 +41,7 @@ var (
 		"almalinux-9",
 		"rocky-linux-8",
 		"rocky-linux-9",
+		"rocky-linux-10",
 	}
 	windowsNICNameRegex = regexp.MustCompile("^Ethernet.*")
 	ethNICNameRegex     = regexp.MustCompile("^eth[0-9]+")
