@@ -12,7 +12,7 @@ X86_SHAPES=(
     "c3-highcpu-4"
     "c4-highcpu-4"
     "n2-highcpu-2"
-    "c3-standard-192-metal"
+#    "c3-standard-192-metal"
 )
 
 ARM_SHAPES=(
