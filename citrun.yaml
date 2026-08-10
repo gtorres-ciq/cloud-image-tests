@@ -1,0 +1,167 @@
+# citrun.yaml — the full CIT matrix as data.
+# Encodes what run_tests.sh expressed as nested if-trees. Sources:
+#   shapes/suites/skips: run_tests.sh (pre-citrun)
+#   budgets: measured quotas 2026-07 (ciq-test-servers); see the design spec.
+#   suite VM/net counts + medians: test-run-stats-analysis.md
+project: ciq-test-servers
+image_prefix: projects/gce-ciq-images/global/images/family
+docker_image: cloud-image-tests
+container_cap: 80
+safety_factor: 0.8
+
+budgets:
+  networks: 90
+  subnetworks: 275
+  regions:
+    # Measured 2026-07 (europe-west1 and us-central1 are identical).
+    europe-west1:    {CPUS: 3000, C3_CPUS: 1920, N2_CPUS: 3000, N2D_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128}
+    us-central1:     {CPUS: 3000, C3_CPUS: 1920, N2_CPUS: 3000, N2D_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128}
+    # Unmeasured regions: conservative CPUS seed. Raise after measuring
+    # (gcloud compute regions describe <region> --project ciq-test-servers).
+    europe-west4:    {CPUS: 1000, N2_CPUS: 1000, T2A_CPUS: 300}
+    asia-southeast1: {CPUS: 1000, N2_CPUS: 1000, C3_CPUS: 500}
+    us-east1:        {CPUS: 1000}
+    us-east4:        {CPUS: 1000, N2_CPUS: 1000}
+    us-west1:        {CPUS: 1000}
+
+zone_sets:
+  # run_tests.sh REGIONS default
+  default:      [europe-west1-b, europe-west1-c, europe-west1-d, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c, us-central1-c]
+  t2a:          [us-central1-a, us-central1-b, us-central1-f, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-b, asia-southeast1-c]
+  n4d:          [us-central1-a, us-central1-b, us-central1-c, us-east1-b, us-east1-d, europe-west1-c, europe-west4-a, europe-west4-b]
+  n4a:          [us-central1-b]
+  # default minus europe-west1-* / europe-west4-b / us-central1-c (never enough c4d)
+  c4d:          [europe-west4-a, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c]
+  # default minus us-central1 (c4 hotattach known issue)
+  c4-hotattach: [europe-west1-b, europe-west1-c, europe-west1-d, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c]
+  # Metal-confirmed zones, one per region, from run_metal_x86_parallel.sh's curated list
+  metal-c3:     [europe-west1-b, us-central1-a, us-east4-a, us-west1-a]
+  metal-c4a:    [us-central1-b, us-central1-f]
+  sv-flex:      [us-central1-a, us-central1-b, us-central1-c, us-central1-f]
+
+shapes:
+  n1-standard-4:         {arch: x86, cpus: 4, family: CPUS,     zone_set: default}
+  n2-standard-4:         {arch: x86, cpus: 4, family: N2_CPUS,  zone_set: default}
+  c3-standard-4:         {arch: x86, cpus: 4, family: C3_CPUS,  zone_set: default}
+  c4-standard-4:         {arch: x86, cpus: 4, family: CPUS,     zone_set: default}
+  c3d-standard-4:        {arch: x86, cpus: 4, family: CPUS,     zone_set: default}
+  c4d-standard-4:        {arch: x86, cpus: 4, family: CPUS,     zone_set: c4d}
+  n4d-standard-2:        {arch: x86, cpus: 2, family: CPUS,     zone_set: n4d}
+  n4-highcpu-2:          {arch: x86, cpus: 2, family: CPUS,     zone_set: default}
+  c3-highcpu-4:          {arch: x86, cpus: 4, family: C3_CPUS,  zone_set: default}
+  c4-highcpu-4:          {arch: x86, cpus: 4, family: CPUS,     zone_set: default}
+  n2-highcpu-2:          {arch: x86, cpus: 2, family: N2_CPUS,  zone_set: default}
+  t2a-standard-2:        {arch: arm64, cpus: 2, family: T2A_CPUS, zone_set: t2a}
+  c4a-standard-4:        {arch: arm64, cpus: 4, family: CPUS,     zone_set: default}
+  n4a-standard-2:        {arch: arm64, cpus: 2, family: CPUS,     zone_set: n4a, max_parallel: 12}
+  c3-standard-192-metal: {arch: x86,   cpus: 192, family: C3_CPUS, zone_set: metal-c3,  metal: true}
+  c4a-highmem-96-metal:  {arch: arm64, cpus: 96,  family: CPUS,    zone_set: metal-c4a, metal: true}
+
+# vms/networks/subnets: test-run-stats-analysis.md §2 (grep-verified);
+# est = median wall-clock; timeout ≈ max(15m, ~3×median).
+suites:
+  cvm:                {vms: 6,  timeout: 35m, est: 10m30s}
+  disk:               {vms: 2,  timeout: 20m, est: 5m}
+  guestagent:         {vms: 7,  timeout: 25m, est: 5m30s}
+  hostnamevalidation: {vms: 2,  timeout: 20m, est: 3m30s}
+  hotattach:          {vms: 1,  timeout: 20m, est: 3m30s}
+  imageboot:          {vms: 4,  timeout: 20m, est: 4m}
+  licensevalidation:  {vms: 1,  timeout: 20m, est: 3m}
+  livemigrate:        {vms: 1,  timeout: 25m, est: 6m}
+  loadbalancer:       {vms: 1, networks: 1, subnets: 2, timeout: 30m, est: 8m}
+  lssd:               {vms: 1,  timeout: 15m, est: 3m}
+  metadata:           {vms: 8,  timeout: 20m, est: 5m}
+  network:            {vms: 3, networks: 2, subnets: 2, timeout: 35m, est: 10m}
+  packagevalidation:  {vms: 6,  timeout: 15m, est: 2m30s}
+  security:           {vms: 1,  timeout: 15m, est: 2m30s}
+  ssh:                {vms: 4,  timeout: 30m, est: 8m30s}
+  suspendresume:      {vms: 1,  timeout: 20m, est: 3m30s}
+  vmspec:             {vms: 1, networks: 2, subnets: 2, timeout: 35m, est: 6m30s}
+  shapevalidation:    {vms: 1,  timeout: 30m, est: 5m30s}
+
+matrix:
+  - name: x86
+    shapes: [n1-standard-4, n2-standard-4, c3-standard-4, c4-standard-4, c3d-standard-4, c4d-standard-4, n4d-standard-2, n4-highcpu-2, c3-highcpu-4, c4-highcpu-4, n2-highcpu-2]
+    images: &x86images
+      - rocky-linux-8
+      - rocky-linux-9
+      - rocky-linux-10
+      - rocky-linux-8-optimized-gcp
+      - rocky-linux-9-optimized-gcp
+      - rocky-linux-10-optimized-gcp
+      - rocky-linux-8-optimized-gcp-nvidia-580
+      - rocky-linux-9-optimized-gcp-nvidia-580
+      - rocky-linux-10-optimized-gcp-nvidia-580
+      - rocky-linux-8-optimized-gcp-nvidia-latest
+      - rocky-linux-9-optimized-gcp-nvidia-latest
+      - rocky-linux-10-optimized-gcp-nvidia-latest
+    suites: &allsuites [cvm, disk, guestagent, hostnamevalidation, hotattach, imageboot, licensevalidation, livemigrate, loadbalancer, lssd, metadata, network, packagevalidation, security, ssh, suspendresume, vmspec]
+  - name: arm
+    shapes: [t2a-standard-2, c4a-standard-4, n4a-standard-2]
+    images: &armimages
+      - rocky-linux-8-arm64
+      - rocky-linux-9-arm64
+      - rocky-linux-10-arm64
+      - rocky-linux-8-optimized-gcp-arm64
+      - rocky-linux-9-optimized-gcp-arm64
+      - rocky-linux-10-optimized-gcp-arm64
+      - rocky-linux-8-optimized-gcp-nvidia-580-arm64
+      - rocky-linux-9-optimized-gcp-nvidia-580-arm64
+      - rocky-linux-10-optimized-gcp-nvidia-580-arm64
+      - rocky-linux-8-optimized-gcp-nvidia-latest-arm64
+      - rocky-linux-9-optimized-gcp-nvidia-latest-arm64
+      - rocky-linux-10-optimized-gcp-nvidia-latest-arm64
+    suites: *allsuites
+  - name: arm-metal
+    shapes: [c4a-highmem-96-metal]
+    images: *armimages
+    suites: *allsuites
+  - name: x86-metal
+    shapes: [c3-standard-192-metal]
+    images: *x86images
+    suites: *allsuites
+
+# Rules apply to matrix configs only; shapevalidation families below are self-contained (zones/cpus per family) and only quarantine applies to them.
+rules:
+  # Suite gating (run_tests.sh:213-243)
+  - suite_only_on: {suites: [disk],   shapes: ["t2a-standard*", "c3d-standard*"]}
+  - suite_only_on: {suites: [lssd],   shapes: ["c3-standard*"]}
+  - suite_only_on: {suites: [cvm],    shapes: ["n2d-standard*", "c3-standard*"]}
+  - suite_only_on: {suites: [vmspec], shapes: ["n1-standard*", "n2-standard*", "n2d-standard*"]}
+  # highcpu keep-list (run_tests.sh:338-350)
+  - keep_only: {shapes: ["*-highcpu-*"], suites: [network, ssh, loadbalancer, metadata, imageboot]}
+  # c3 metal drops (run_tests.sh:264-284): disk/vmspec already gone via suite_only_on;
+  # cvm/lssd's "c3-standard*" glob also matches this metal shape, so drop them here too
+  - drop: {shapes: [c3-standard-192-metal], suites: [cvm, lssd, livemigrate, suspendresume, imageboot, network]}
+  # c4a metal keep-list + no rocky-8 (run_tests.sh:244-263)
+  - keep_only: {shapes: [c4a-highmem-96-metal], suites: [suspendresume, licensevalidation, loadbalancer, metadata, packagevalidation]}
+  - drop: {shapes: [c4a-highmem-96-metal], images: ["rocky-linux-8*"]}
+  # c4 hotattach avoids us-central1 (run_tests.sh:360-370)
+  - zone_set: {shapes: ["c4-standard*"], suites: [hotattach], set: c4-hotattach}
+  # Metal boots are slow; give every metal job more headroom
+  - timeout: {shapes: ["*-metal"], value: 45m}
+
+quarantine:
+  # GCE Secure Boot rejects the rocky-8 optimized-gcp shim; base rocky-8 passes.
+  # Whole imageboot suite skipped for these images until the shim is re-signed.
+  - {image: rocky-linux-8-optimized-gcp,               suite: imageboot, reason: "secureboot shim rejected by GCE"}
+  - {image: rocky-linux-8-optimized-gcp-nvidia-580,    suite: imageboot, reason: "secureboot shim rejected by GCE"}
+  - {image: rocky-linux-8-optimized-gcp-nvidia-latest, suite: imageboot, reason: "secureboot shim rejected by GCE"}
+
+# Families from test_suites/shapevalidation/setup.go (largest-in-family shape,
+# pinned zones from its ForceZone entries). LockProject there is capacity
+# courtesy (setup.go:160-162) — the CPU budgets above replace it.
+shapevalidation:
+  images: [rocky-linux-9]
+  arm_images: [rocky-linux-9-arm64]
+  families:
+    - {name: E2,  shape: e2-standard-32,   cpus: 32,  family: E2_CPUS,  arch: x86, zone_set: sv-flex}
+    - {name: T2D, shape: t2d-standard-60,  cpus: 60,  family: T2D_CPUS, arch: x86, zone_set: sv-flex}
+    - {name: N4,  shape: n4-highmem-80,    cpus: 80,  family: CPUS,     arch: x86, pinned_zone: us-east4-b}
+    - {name: N1,  shape: n1-highmem-96,    cpus: 96,  family: CPUS,     arch: x86, zone_set: sv-flex}
+    - {name: N2,  shape: n2-highmem-128,   cpus: 128, family: N2_CPUS,  arch: x86, zone_set: sv-flex}
+    - {name: C3,  shape: c3-highmem-176,   cpus: 176, family: C3_CPUS,  arch: x86, zone_set: sv-flex}
+    - {name: C4,  shape: c4-highmem-192,   cpus: 192, family: CPUS,     arch: x86, pinned_zone: us-east4-a}
+    - {name: N2D, shape: n2d-standard-224, cpus: 224, family: N2D_CPUS, arch: x86, zone_set: sv-flex}
+    - {name: C3D, shape: c3d-highmem-360,  cpus: 360, family: CPUS,     arch: x86, pinned_zone: us-east4-c}
+    - {name: T2A, shape: t2a-standard-48,  cpus: 48,  family: T2A_CPUS, arch: arm64, pinned_zone: europe-west4-a}

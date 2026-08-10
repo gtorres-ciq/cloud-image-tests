@@ -2,16 +2,24 @@
 # Run cloud-image-tests across x86, ARM, and ARM-metal configurations in parallel.
 #
 # Usage:
-#   ./run_all_tests.sh [--configs x86,arm,arm-metal] [--dry-run] [--summary-only]
+#   ./run_all_tests.sh [--cleanup] [--configs x86,arm,arm-metal] [--dry-run] [--resume] [--slowest n] [--summary-only]
 
 set -euo pipefail
 
 START_SECONDS=$SECONDS
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_DIR="$SCRIPT_DIR/tmp-logs/$(date +%Y%m%d-%H%M%S)"
+RUN_TS="$(date +%Y%m%d-%H%M%S)"
+RESUME=false
 DRY_RUN=false
 SUMMARY_ONLY=false
 SLOWEST=0
+CLEANUP=false
+CLEANUP_PROJECT="ciq-test-servers"
+# Bare region names (no zone suffix) covering every region used by any config
+# below, so -regions actually finds leaked load-balancer resources wherever a
+# test ran (see cleanerupper.CleanLoadBalancerResources).
+CLEANUP_REGIONS="europe-west1,europe-west4,asia-southeast1,us-central1,us-east1,us-east4,us-west1"
 
 VALID_CONFIGS=(x86 arm arm-metal)
 CONFIGS=("${VALID_CONFIGS[@]}")
@@ -19,12 +27,20 @@ EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
+	--cleanup)
+		CLEANUP=true
+		shift
+		;;
 	--configs)
 		IFS=',' read -ra CONFIGS <<<"$2"
 		shift 2
 		;;
 	--dry-run)
 		DRY_RUN=true
+		shift
+		;;
+	--resume)
+		RESUME=true
 		shift
 		;;
 	--slowest)
@@ -40,11 +56,13 @@ while [[ $# -gt 0 ]]; do
 		shift
 		;;
 	--help | -h)
-		echo "Usage: $0 [--configs x86,arm,arm-metal] [--dry-run] [--summary-only] [run_tests.sh flags...]"
+		echo "Usage: $0 [--cleanup] [--configs x86,arm,arm-metal] [--dry-run] [--resume] [--slowest n] [--summary-only] [run_tests.sh flags...]"
 		echo ""
 		echo "Options:"
+		echo "  --cleanup             Sweep leaked test resources (cmd/cleanup) before and after the run"
 		echo "  --configs <c1,c2,...>  Comma-separated configs to run (default: all)"
 		echo "  --dry-run             Print what would run, then exit"
+		echo "  --resume              Reuse the most recent result dir per config (skip passed cells, re-run failures)"
 		echo "  --slowest <n>         Print the n slowest suites and test cases after summary"
 		echo "  --summary-only        Show results from existing test output, skip running tests"
 		echo ""
@@ -81,11 +99,21 @@ for cfg in "${CONFIGS[@]}"; do
 done
 
 config_dir() {
+	local base
 	case "$1" in
-	x86) echo "$SCRIPT_DIR/tmp-x86" ;;
-	arm) echo "$SCRIPT_DIR/tmp-arm" ;;
-	arm-metal) echo "$SCRIPT_DIR/tmp-arm-metal" ;;
+	x86) base="$SCRIPT_DIR/tmp-x86" ;;
+	arm) base="$SCRIPT_DIR/tmp-arm" ;;
+	arm-metal) base="$SCRIPT_DIR/tmp-arm-metal" ;;
 	esac
+	if $RESUME || $SUMMARY_ONLY; then
+		local latest
+		latest=$(ls -d "$base"/20*/ 2>/dev/null | sort -V | tail -1 || true)
+		if [[ -n "$latest" ]]; then
+			echo "${latest%/}"
+			return
+		fi
+	fi
+	echo "$base/$RUN_TS"
 }
 
 config_args() {
@@ -120,6 +148,13 @@ STARTUP_EOF
 	chmod +x "$1"
 }
 
+run_cleanup() {
+	echo "=== Resource cleanup (project $CLEANUP_PROJECT) ==="
+	if ! (cd "$SCRIPT_DIR" && go run ./cmd/cleanup -project "$CLEANUP_PROJECT" -older-than 2h -regions "$CLEANUP_REGIONS" -no-dry-run); then
+		echo "WARN: cleanup failed; continuing" >&2
+	fi
+}
+
 # ---------------------------------------------------------------------------
 # Dry run
 # ---------------------------------------------------------------------------
@@ -151,6 +186,8 @@ if ! docker image inspect cloud-image-tests >/dev/null 2>&1; then
 	echo "  docker build -t cloud-image-tests -f Dockerfile ." >&2
 	exit 1
 fi
+
+if $CLEANUP; then run_cleanup; fi
 
 for cfg in "${CONFIGS[@]}"; do
 	mkdir -p "$(config_dir "$cfg")"
@@ -205,6 +242,8 @@ while [[ ${#remaining[@]} -gt 0 ]]; do
 		sleep 30
 	fi
 done
+
+if $CLEANUP; then run_cleanup; fi
 
 fi # end ! $SUMMARY_ONLY
 

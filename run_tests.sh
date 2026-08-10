@@ -101,6 +101,9 @@ function show_help() {
     echo "  --help, -h                       Show this help message"
     echo "  [...]                            Other options are passed to the cloud-image-tests command in the container"
     echo ""
+    echo "Per-cell output: <image>_<shape>_<test>.xml (clean junit) and .log (full container output) in the current directory."
+    echo "Note: extra args are appended after --out_path; passing your own --out_path overrides per-cell XML capture (and breaks resume detection)."
+    echo ""
     echo "Default x86 shapes: ${X86_SHAPES[*]}"
     echo "Default ARM shapes: ${ARM_SHAPES[*]}"
     echo "Default x86 images: ${X86_IMAGES[*]}"
@@ -249,7 +252,7 @@ for shape in "${SHAPES[@]}"; do
                 unset 'CHECK_IMAGES[i]'
             fi
         done
-        CHECK_REGIONS=("us-central1-b")
+        CHECK_REGIONS=("us-central1-b" "us-central1-f")
         keep=(suspendresume licensevalidation loadbalancer metadata packagevalidation)
         for target in "${CHECK_TESTS[@]}"; do
             if [[ ! " ${keep[*]} " =~ " ${target} " ]]; then
@@ -261,10 +264,13 @@ for shape in "${SHAPES[@]}"; do
             fi
         done
     fi
-    # If shape == c3-standard-192-metal, limit region to europe-west1-b
+    # If shape == c3-standard-192-metal, use metal-confirmed zones
     if [ "$shape" == "c3-standard-192-metal" ]; then
-        #CHECK_REGIONS=("europe-west1-c", "europe-west1-b")
-        CHECK_REGIONS=("europe-west1-c")
+        # Metal-confirmed zones, one per region, from run_metal_x86_parallel.sh's
+        # curated list (europe-west1-c deliberately excluded: ~3x more stockouts
+        # than -b). Multi-zone, multi-region so the manager's stockout retry can
+        # actually fail over.
+        CHECK_REGIONS=("europe-west1-b" "us-central1-a" "us-east4-a" "us-west1-a")
         # Remove tests that are known to fail or not applicable on this shape:
         #  * cvm - Switches to a different instance type, so not applicable
         #  * livemigrate - Can't migrate a metal instance
@@ -283,7 +289,7 @@ for shape in "${SHAPES[@]}"; do
             done
         done
     elif [ "$shape" == "c4a-highmem-96-metal" ]; then
-        CHECK_REGIONS=("us-central1-b")
+        CHECK_REGIONS=("us-central1-b" "us-central1-f")
         # Remove tests that are known to fail or not applicable on this shape:
         #  * cvm - Switches to a different instance type, so not applicable
         #  * livemigrate - Can't migrate a metal instance
@@ -306,11 +312,16 @@ for shape in "${SHAPES[@]}"; do
             CHECK_REGIONS=("us-central1-b")
         fi
     elif [[ "$shape" == c4d-standard* ]]; then
+        # There's never enough c4d capacity in europe-west1-* or europe-west4-b,
+        # and us-central1-c is excluded too.
         if ! $USER_PROVIDED_REGIONS; then
-            for i in "${!CHECK_REGIONS[@]}"; do
-                if [[ ${CHECK_REGIONS[i]} == "europe-west1-c" ]] || [[ ${CHECK_REGIONS[i]} == "europe-west1-d" ]] || [[ ${CHECK_REGIONS[i]} == "us-central1-c" ]]; then
-                    unset 'CHECK_REGIONS[i]'
-                fi
+            delete=(europe-west1-b europe-west1-c europe-west1-d europe-west4-b us-central1-c)
+            for target in "${delete[@]}"; do
+                for i in "${!CHECK_REGIONS[@]}"; do
+                    if [[ ${CHECK_REGIONS[i]} = $target ]]; then
+                        unset 'CHECK_REGIONS[i]'
+                    fi
+                done
             done
         fi
     elif [[ "$shape" == n4d-standard* ]]; then
@@ -321,18 +332,6 @@ for shape in "${SHAPES[@]}"; do
     elif [[ "$shape" == t2a-standard* ]]; then
         if ! $USER_PROVIDED_REGIONS; then
             CHECK_REGIONS=("us-central1-a" "us-central1-b" "us-central1-f" "europe-west4-a" "europe-west4-b" "europe-west4-c" "asia-southeast1-b" "asia-southeast1-c")
-        fi
-    # There's never enough c4d capacity in europe-west4-b, so remove it from the list
-    elif [[ "$shape" == c4d-standard* ]]; then
-        if ! $USER_PROVIDED_REGIONS; then
-            delete=(europe-west1-b europe-west1-c europe-west1-d europe-west4-b)
-            for target in "${delete[@]}"; do
-                for i in "${!CHECK_REGIONS[@]}"; do
-                    if [[ ${CHECK_REGIONS[i]} = $target ]]; then
-                        unset 'CHECK_REGIONS[i]'
-                    fi
-                done
-            done
         fi
     fi
     if [[ "$shape" == n4-highcpu-* ]] || [[ "$shape" == c3-highcpu-* ]] || [[ "$shape" == c4-highcpu-* ]] || [[ "$shape" == n2-highcpu-* ]]; then
@@ -394,7 +393,7 @@ for shape in "${SHAPES[@]}"; do
                 QUOTED_EXTRA_ARGS+=" $escaped_arg"
             done
             set -x
-            /bin/bash -c "docker run --rm -v $(pwd):/curpath:z -v ~/.config/gcloud/:/creds:z -e GOOGLE_APPLICATION_CREDENTIALS=/creds/application_default_credentials.json cloud-image-tests --project $PROJECT --filter \"^($testrun)$\" --zones "$REGION" --images \"$image\" ${SHAPE_ARG}=\"$shape\" --parallel_count 1${QUOTED_EXTRA_ARGS} | tee \"${base_image}_${shape}_${testrun}.xml\"" &
+            /bin/bash -c "docker run --rm -v $(pwd):/curpath:z -v ~/.config/gcloud/:/creds:z -e GOOGLE_APPLICATION_CREDENTIALS=/creds/application_default_credentials.json cloud-image-tests --project $PROJECT --filter \"^($testrun)$\" --zones "$REGION" --images \"$image\" ${SHAPE_ARG}=\"$shape\" --parallel_count 1 --out_path \"/curpath/${base_image}_${shape}_${testrun}.xml\"${QUOTED_EXTRA_ARGS} > \"${base_image}_${shape}_${testrun}.log\" 2>&1" &
             set +x
             # Shift REGIONS so first region is moved to the end of the array
             CHECK_REGIONS=("${CHECK_REGIONS[@]:1}" "${CHECK_REGIONS[0]}")
@@ -402,11 +401,11 @@ for shape in "${SHAPES[@]}"; do
             while /bin/true; do
                 # Check the number of running jobs
                 JOB_COUNT=$(jobs -r | wc -l)
-                sleep 5
                 if [ "$JOB_COUNT" -lt "$PCOUNT" ]; then
                     break
                 fi
                 echo "Waiting for jobs to finish, current count: $JOB_COUNT"
+                sleep 5
             done
             while [ -e /tmp/pause.txt ]; do
                 JOB_COUNT=$(jobs -r | wc -l)
