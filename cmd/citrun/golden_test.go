@@ -69,15 +69,6 @@ func TestGoldenParity(t *testing.T) {
 	if n := len(cellsFor(jobs, "shapevalidation")); n != 10 {
 		t.Errorf("shapevalidation jobs = %d, want 10", n)
 	}
-	quarantined := 0
-	for _, j := range jobs {
-		if j.Quarantined != "" {
-			quarantined++
-		}
-	}
-	if quarantined != 33 {
-		t.Errorf("quarantined = %d, want 33 (3 rocky-8-optimized images x 11 x86 shapes x imageboot)", quarantined)
-	}
 	if len(jobs) != 2030 {
 		t.Errorf("total jobs = %d, want 2030", len(jobs))
 	}

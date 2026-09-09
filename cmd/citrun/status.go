@@ -175,26 +175,3 @@ func cmdStatus(args []string) int {
 		time.Sleep(5 * time.Second)
 	}
 }
-
-// cmdCleanup implements `citrun cleanup [-config path] [-older-than dur]`: a
-// standalone entry point to the same resource sweep cmdRun runs before/after
-// every run, for use between runs or after an orchestrator crash skipped it.
-// It only reads -config to learn the project; -regions/-no-dry-run stay
-// exactly as sweep() already hardcodes them (see run.go).
-func cmdCleanup(args []string) int {
-	fs := flag.NewFlagSet("cleanup", flag.ExitOnError)
-	configPath := fs.String("config", "citrun.yaml", "config file (fully validated; supplies the project to sweep)")
-	olderThan := fs.String("older-than", "2h", "only touch resources older than this")
-	fs.Parse(args)
-
-	cfg, err := LoadConfig(*configPath)
-	if err != nil {
-		log.Print(err)
-		return 2
-	}
-	if err := sweep(cfg.Project, *olderThan); err != nil {
-		log.Printf("cleanup sweep failed: %v", err)
-		return 2
-	}
-	return 0
-}

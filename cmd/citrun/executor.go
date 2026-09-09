@@ -40,6 +40,9 @@ func containerName(runID, jobID string) string {
 }
 
 func buildDockerArgs(d *DockerExecutor, job Job, zone, jobDir string) []string {
+	if absolute, err := filepath.Abs(jobDir); err == nil {
+		jobDir = absolute
+	}
 	args := []string{"run", "--rm", "--name", containerName(d.RunID, job.ID),
 		"-v", jobDir + ":/curpath:z",
 		"-v", d.CredsDir + ":/creds:z",

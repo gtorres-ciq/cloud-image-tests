@@ -24,8 +24,8 @@ import (
 	"log"
 	"math/rand"
 	"path"
-	"sort"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -218,6 +218,8 @@ func (t *TestWorkflow) addNewVMStep(disks []*compute.Disk, instanceParams *daisy
 
 	instance.StartupScript = fmt.Sprintf("wrapper%s", suffix)
 	instance.Name = name
+	instance.Description = cleanerupper.CITDescription(instance.Description)
+	instance.Labels = cleanerupper.CITLabels(instance.Labels)
 	instance.Scopes = append(instance.Scopes, "https://www.googleapis.com/auth/devstorage.read_write")
 
 	for _, disk := range disks {
@@ -286,6 +288,8 @@ func (t *TestWorkflow) appendCreateVMStep(disks []*compute.Disk, instanceParams 
 	}
 	instance.StartupScript = fmt.Sprintf("wrapper%s", suffix)
 	instance.Name = name
+	instance.Description = cleanerupper.CITDescription(instance.Description)
+	instance.Labels = cleanerupper.CITLabels(instance.Labels)
 	instance.Scopes = append(instance.Scopes, "https://www.googleapis.com/auth/devstorage.read_write")
 	if t.matchesWorkflowMachineType(instance.MachineType) {
 		instance.ReservationAffinity = t.ReservationAffinity
@@ -362,6 +366,8 @@ func (t *TestWorkflow) appendCreateVMStepBeta(disks []*compute.Disk, instance *d
 	}
 	instance.StartupScript = fmt.Sprintf("wrapper%s", suffix)
 	instance.Name = name
+	instance.Description = cleanerupper.CITDescription(instance.Description)
+	instance.Labels = cleanerupper.CITLabels(instance.Labels)
 	instance.Scopes = append(instance.Scopes, "https://www.googleapis.com/auth/devstorage.read_write")
 	if t.matchesWorkflowMachineType(instance.MachineType) {
 		instance.ReservationAffinity = t.ReservationAffinityBeta
@@ -428,6 +434,8 @@ func (t *TestWorkflow) appendCreateDisksStep(diskParams *compute.Disk) (*daisy.S
 	}
 	bootdisk := &daisy.Disk{}
 	bootdisk.Name = diskParams.Name
+	bootdisk.Description = cleanerupper.CITDescription(diskParams.Description)
+	bootdisk.Labels = cleanerupper.CITLabels(diskParams.Labels)
 	bootdisk.SourceImage = t.ImageURL
 	bootdisk.Type = diskParams.Type
 	bootdisk.Zone = diskParams.Zone
@@ -458,6 +466,8 @@ func (t *TestWorkflow) appendCreateMountDisksStep(diskParams *compute.Disk) (*da
 	}
 	mountdisk := &daisy.Disk{}
 	mountdisk.Name = diskParams.Name
+	mountdisk.Description = cleanerupper.CITDescription(diskParams.Description)
+	mountdisk.Labels = cleanerupper.CITLabels(diskParams.Labels)
 	mountdisk.Type = diskParams.Type
 	mountdisk.Zone = diskParams.Zone
 	if diskParams.SizeGb == 0 {
@@ -636,6 +646,7 @@ func (t *TestWorkflow) addStartStep(stepname, vmname string) (*daisy.Step, error
 }
 
 func (t *TestWorkflow) appendCreateNetworkStep(network *daisy.Network) (*daisy.Step, *daisy.Network, error) {
+	network.Description = cleanerupper.CITDescription(network.Description)
 	createNetworks := &daisy.CreateNetworks{}
 	*createNetworks = append(*createNetworks, network)
 	createNetworkStep, ok := t.wf.Steps[createNetworkStepName]
@@ -655,6 +666,7 @@ func (t *TestWorkflow) appendCreateNetworkStep(network *daisy.Network) (*daisy.S
 }
 
 func (t *TestWorkflow) appendCreateSubnetworksStep(subnetwork *daisy.Subnetwork) (*daisy.Step, *daisy.Subnetwork, error) {
+	subnetwork.Description = cleanerupper.CITDescription(subnetwork.Description)
 	createSubnetworks := &daisy.CreateSubnetworks{}
 	*createSubnetworks = append(*createSubnetworks, subnetwork)
 

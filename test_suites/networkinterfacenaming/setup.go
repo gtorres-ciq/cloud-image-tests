@@ -19,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,6 +74,13 @@ func TestSetup(t *imagetest.TestWorkflow) error {
 		// the instance to use the default NIC type.
 		nic1Type = "VIRTIO_NET"
 		nic2Type = "GVNIC"
+		// Some machine families (C3, C4, C3D, C4D, N4, N4D) only support GVNIC
+		// and reject a VIRTIO_NET interface, so the mixed configuration above is
+		// impossible. Use GVNIC for both NICs; the naming scheme is still
+		// exercised, just not the virtio/gvnic mix.
+		if gvnicOnly(t.MachineType.Name) {
+			nic1Type = "GVNIC"
+		}
 	}
 
 	nicname := &daisy.Instance{}
@@ -135,4 +143,16 @@ func c3metalZone() string {
 	zone := unusedZones[r.Intn(len(unusedZones))]
 	usedZones[zone] = true
 	return zone
+}
+
+// gvnicOnly reports whether the machine type is in a family that only supports
+// GVNIC and rejects a VIRTIO_NET network interface (e.g. C3, C4, C3D, C4D, N4,
+// N4D). Asking such a machine for a VIRTIO_NET NIC fails VM creation.
+func gvnicOnly(machineType string) bool {
+	for _, family := range []string{"c3", "c4", "n4"} {
+		if strings.HasPrefix(machineType, family) {
+			return true
+		}
+	}
+	return false
 }

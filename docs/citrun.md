@@ -6,9 +6,8 @@ budgets with stockout/quota cooldowns, per-job artifacts, explicit
 state/resume, and a real report. It is a host-side CLI — it shells out to
 `docker run` once per job; it never runs inside a container itself.
 
-**Run it from the repo root.** The default run directory (`runs/<ts>/`) and
-the `cleanup` subcommand's `go run ./cmd/cleanup` invocation are both
-relative paths; nothing enforces cwd today.
+**Run it from the repo root.** The default run directory (`runs/<ts>/`) is
+relative; nothing enforces cwd today.
 
 ## What it replaces
 
@@ -56,10 +55,8 @@ runs/20260810-120000/
 go run ./cmd/citrun run
 ```
 
-Loads `citrun.yaml`, expands the full matrix, creates `runs/<ts>/`, sweeps
-leaked resources (see `cleanup` below — `run` does this automatically,
-before and after, unless you pass `-cleanup=false`), then schedules and
-executes every job. Prints a ticker line every 30s and the final report on
+Loads `citrun.yaml`, expands the full matrix, creates `runs/<ts>/`, then
+schedules and executes every job. Prints a ticker line every 30s and the final report on
 completion. Exit code: `0` if every job ended `passed` or
 `skipped_quarantine`, `1` if any job ended `failed_real`/`failed_infra`, `2`
 on a setup error (bad config, bad filters, I/O failure).
@@ -71,7 +68,7 @@ go run ./cmd/citrun run -dry-run
 ```
 
 Expands the matrix and prints per-config job counts (with quarantine
-counts), then exits — no run directory is created, no sweep runs. Use this
+counts), then exits — no run directory is created. Use this
 after any `citrun.yaml` edit to sanity-check the resulting job counts before
 spending real GCE quota.
 
@@ -108,6 +105,27 @@ go run ./cmd/citrun rerun-failed runs/20260810-120000
 
 Identical to `resume`, except `failed_real` jobs are requeued as well.
 
+After editing a run's saved `citrun.yaml`, explicitly refresh its saved job
+placement and CPU accounting before retrying:
+
+```bash
+go run ./cmd/citrun rerun-failed --refresh-config runs/20260908-141435/
+```
+
+Stop the original runner first. This option (also available on `resume`)
+updates only `Zones`, `CPUCost`, and `BudgetKey` for queued/failed jobs,
+matching IDs against the edited config's expanded matrix. Passed and
+quarantined jobs and all attempt history remain unchanged. Normal resume
+status transitions still apply afterward. It does not add new jobs or refresh
+other job fields. Without the flag, saved job definitions remain unchanged.
+
+The refresh rejects unmatched jobs, running jobs, and jobs that cannot fit
+any configured regional CPU budget. Validation uses configured budgets, not
+live GCP capacity. Before saving, it creates a unique
+`state.json.pre-refresh-*` backup in the run directory and logs its path.
+If state still contains running jobs, reconcile them using ordinary resume
+before attempting a refresh; do not edit state while a runner is active.
+
 ### `status` / `status -watch` — check a run's progress
 
 ```
@@ -135,32 +153,6 @@ the markdown to stdout — useful mid-run for a progress snapshot with more
 detail than `status`, or to regenerate the report after manually editing
 state. `-top N` controls how many of the slowest passed jobs are listed
 (default 15).
-
-### `cleanup` — sweep leaked cloud resources
-
-```
-go run ./cmd/citrun cleanup
-go run ./cmd/citrun cleanup -older-than 4h
-```
-
-**This deletes real cloud resources. It is not a dry-run.** `cleanup` is
-the same sweep `run` already does automatically before and after every run
-(so you normally never need to call it directly) — it exists standalone for
-running between runs, or after an orchestrator crash skipped the
-post-run sweep. It reads `-config` (default `citrun.yaml`, fully validated —
-the same `LoadConfig` every other subcommand uses) to learn which GCP
-project to sweep, then deletes any instance/disk/load-balancer/network
-resource older than `-older-than` (default `2h`) across all 7 test regions
-(`europe-west1`, `europe-west4`, `asia-southeast1`, `us-central1`,
-`us-east1`, `us-east4`, `us-west1`) — it always passes `-no-dry-run` to
-`cmd/cleanup`. Unlike `run`'s two internal pre/post-run sweeps (which only
-WARN-log a sweep failure and carry on, since a cleanup problem shouldn't
-abort a test run), the standalone `cleanup` subcommand exits `2` if the
-config fails to load or the sweep itself fails (bad credentials, wrong cwd,
-`cmd/cleanup` compile error, etc.) — check its exit code if you're scripting
-this. Nothing currently running for less than `-older-than` is
-touched (see `cleanerupper.AgePolicy`), but there is no per-run scoping: it
-sweeps the whole project, not just resources tagged with your run ID.
 
 ## Pausing a run
 
@@ -218,8 +210,8 @@ still expand and appear in `state.json`/reports (status
 **Any of these changes will change `ExpandJobs`' output — and
 `cmd/citrun/golden_test.go`'s `TestGoldenParity` exists specifically to
 catch that.** It checks the expanded matrix against golden cell lists in
-`tools/testdata/cells-*.txt` plus hardcoded totals (2,030 jobs, 33
-quarantined, etc.) drawn from the current matrix. After a deliberate matrix
+`tools/testdata/cells-*.txt` plus hardcoded job totals drawn from the current
+matrix. After a deliberate matrix
 change, regenerate the golden files (`tools/cell-parity.sh`, per the Phase 0
 plan) and update the hardcoded counts in the test — a failure here is the
 test doing its job, not a bug.
@@ -232,6 +224,3 @@ test doing its job, not a bug.
   shape/family selector) entirely from `Job`/`Config` data. There is no
   citrun flag to inject an arbitrary extra argument into the manager
   invocation inside the container.
-- **`cleanup` sweeps the whole project**, not just the current run's
-  resources (see above) — treat `-older-than` as your safety margin against
-  in-flight VMs, not a per-run filter.

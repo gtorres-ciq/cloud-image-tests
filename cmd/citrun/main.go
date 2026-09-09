@@ -22,8 +22,6 @@ func main() {
 		os.Exit(cmdReport(os.Args[2:]))
 	case "status":
 		os.Exit(cmdStatus(os.Args[2:]))
-	case "cleanup":
-		os.Exit(cmdCleanup(os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand %q\n", os.Args[1])
 		usage()
@@ -32,5 +30,5 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `usage: citrun <run|resume|rerun-failed|status|report|cleanup> [flags]`)
+	fmt.Fprintln(os.Stderr, `usage: citrun <run|resume|rerun-failed|status|report> [flags]`)
 }
