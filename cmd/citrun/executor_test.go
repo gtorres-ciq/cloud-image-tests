@@ -44,6 +44,19 @@ func TestBuildDockerArgs(t *testing.T) {
 	}
 }
 
+func TestDockerArgsUseAbsoluteJobDirectory(t *testing.T) {
+	d := &DockerExecutor{Project: "p", RunID: "r1", CredsDir: "/home/u/.config/gcloud", Image: "cloud-image-tests"}
+	job := Job{ID: "j1", Suite: "ssh", Timeout: Duration(time.Minute)}
+	absolute, err := filepath.Abs("runs/r1/jobs/j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(buildDockerArgs(d, job, "europe-west1-b", "runs/r1/jobs/j1"), " ")
+	if !strings.Contains(args, "-v "+absolute+":/curpath:z") {
+		t.Fatalf("Docker args must mount an absolute job directory, got %q", args)
+	}
+}
+
 func writeJobDir(t *testing.T, junit, logText string) string {
 	t.Helper()
 	dir := t.TempDir()

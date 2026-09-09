@@ -37,7 +37,39 @@ import (
 	osconfigpb "google.golang.org/genproto/googleapis/cloud/osconfig/v1beta"
 )
 
-const keepLabel = "do-not-delete"
+const (
+	keepLabel = "do-not-delete"
+	// CITOwnershipLabel and CITOwnershipValue identify resources created by CIT.
+	CITOwnershipLabel = "cloud-image-tests"
+	CITOwnershipValue = "managed"
+	// CITOwnershipMarker identifies resource types that do not support labels.
+	CITOwnershipMarker = "cloud-image-tests: managed"
+)
+
+func isCITResource(labels map[string]string, description string) bool {
+	return labels[CITOwnershipLabel] == CITOwnershipValue || strings.Contains(description, CITOwnershipMarker)
+}
+
+// CITDescription appends the persistent CIT ownership marker to a resource
+// description without discarding a caller-provided description.
+func CITDescription(description string) string {
+	if strings.Contains(description, CITOwnershipMarker) {
+		return description
+	}
+	if description == "" {
+		return CITOwnershipMarker
+	}
+	return description + "; " + CITOwnershipMarker
+}
+
+// CITLabels adds the persistent CIT ownership label to a resource's labels.
+func CITLabels(labels map[string]string) map[string]string {
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+	labels[CITOwnershipLabel] = CITOwnershipValue
+	return labels
+}
 
 // Clients contains all of the clients needed by cleanerupper functions.
 type Clients struct {
@@ -88,6 +120,7 @@ func AgePolicy(t time.Time) PolicyFunc {
 		var desc, name string
 		var created time.Time
 		var err error
+		owned := true
 		switch r := resource.(type) {
 		case *osconfigv1alphapb.OSPolicyAssignment:
 			name = r.Name
@@ -104,25 +137,30 @@ func AgePolicy(t time.Time) PolicyFunc {
 				return false
 			}
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		case *compute.MachineImage:
 			name = r.Name
 			desc = r.Description
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		case *compute.Disk:
 			name = r.Name
 			desc = r.Description
 			labels = r.Labels
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		case *compute.Image:
 			name = r.Name
 			desc = r.Description
 			labels = r.Labels
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		case *compute.Snapshot:
 			name = r.Name
 			desc = r.Description
 			labels = r.Labels
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		case *compute.Instance:
 			name = r.Name
 			desc = r.Description
@@ -131,35 +169,47 @@ func AgePolicy(t time.Time) PolicyFunc {
 			}
 			labels = r.Labels
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		case *compute.ForwardingRule:
 			desc = r.Description
 			labels = r.Labels
 			name = r.Name
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		case *compute.UrlMap:
 			desc = r.Description
 			name = r.Name
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		case *compute.BackendService:
 			desc = r.Description
 			name = r.Name
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		case *compute.TargetHttpProxy:
 			desc = r.Description
 			name = r.Name
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		case *compute.HealthCheck:
 			desc = r.Description
 			name = r.Name
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		case *compute.NetworkEndpointGroup:
 			desc = r.Description
 			name = r.Name
 			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
+		case *compute.Route:
+			name = r.Name
+			desc = r.Description
+			created, err = time.Parse(time.RFC3339, r.CreationTimestamp)
+			owned = isCITResource(labels, desc)
 		default:
 			return false
 		}
-		if err != nil {
+		if err != nil || !owned {
 			return false
 		}
 		if _, keep := labels[keepLabel]; keep {
@@ -727,9 +777,8 @@ func CleanNetworks(clients Clients, project string, delete PolicyFunc, dryRun bo
 	var deleted []string
 	var errsMu sync.Mutex
 	var errs []error
-	var networkWG sync.WaitGroup
 	for _, n := range networks {
-		networkWG.Go(func() {
+		func() {
 			if !delete(n) {
 				return
 			}
@@ -972,7 +1021,9 @@ func CleanNetworks(clients Clients, project string, delete PolicyFunc, dryRun bo
 			}
 			// Delete all routes in the same network.
 			for _, r := range routes {
-				if r.Network != n.SelfLink {
+				// GCP creates an undeletable local route for every network.
+				// Deleting the network removes it automatically.
+				if r.Network != n.SelfLink || r.NextHopNetwork != "" {
 					continue
 				}
 				rpartial := fmt.Sprintf("projects/%s/global/routes/%s", project, r.Name)
@@ -1007,9 +1058,8 @@ func CleanNetworks(clients Clients, project string, delete PolicyFunc, dryRun bo
 			deletedMu.Lock()
 			defer deletedMu.Unlock()
 			deleted = append(deleted, netpartial)
-		})
+		}()
 	}
-	networkWG.Wait()
 	return deleted, errs
 }
 
