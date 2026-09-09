@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -31,7 +30,6 @@ func cmdRun(args []string) int {
 	suites := fs.String("suites", "", "comma-separated suite globs")
 	runDir := fs.String("run-dir", "", "run directory (default runs/<timestamp>)")
 	dryRun := fs.Bool("dry-run", false, "print the expanded plan and exit")
-	cleanup := fs.Bool("cleanup", true, "sweep leaked resources before and after")
 	fs.Parse(args)
 
 	cfg, err := LoadConfig(*configPath)
@@ -83,17 +81,7 @@ func cmdRun(args []string) int {
 		log.Print(err)
 		return 2
 	}
-	if *cleanup {
-		if err := sweep(cfg.Project, "2h"); err != nil {
-			log.Printf("WARN: cleanup failed (continuing): %v", err)
-		}
-	}
 	code := executeRun(cfg, st, dir)
-	if *cleanup {
-		if err := sweep(cfg.Project, "2h"); err != nil {
-			log.Printf("WARN: cleanup failed (continuing): %v", err)
-		}
-	}
 	return code
 }
 
@@ -192,14 +180,4 @@ func printPlan(jobs []Job) {
 		totalQ += perConfigQ[c]
 	}
 	fmt.Printf("%-16s %5d jobs  (%d quarantined)\n", "TOTAL", total, totalQ)
-}
-
-const cleanupRegions = "europe-west1,europe-west4,asia-southeast1,us-central1,us-east1,us-east4,us-west1"
-
-func sweep(project, olderThan string) error {
-	log.Print("resource sweep (cmd/cleanup)...")
-	cmd := exec.Command("go", "run", "./cmd/cleanup", "-project", project,
-		"-older-than", olderThan, "-regions", cleanupRegions, "-no-dry-run")
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	return cmd.Run()
 }

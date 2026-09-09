@@ -58,9 +58,10 @@ func prepareResume(st *RunState, chk containerChecker, runDir string, onlyFailed
 
 func cmdResume(args []string, onlyFailed bool) int {
 	fs := flag.NewFlagSet("resume", flag.ExitOnError)
+	refresh := fs.Bool("refresh-config", false, "refresh queued/failed job zones and CPU accounting from the run config (stop the original runner first)")
 	fs.Parse(args)
 	if fs.NArg() != 1 {
-		log.Print("usage: citrun resume|rerun-failed <run-dir>")
+		log.Print("usage: citrun resume|rerun-failed [--refresh-config] <run-dir>")
 		return 2
 	}
 	dir := fs.Arg(0)
@@ -81,6 +82,14 @@ func cmdResume(args []string, onlyFailed bool) int {
 	}
 	ex := &DockerExecutor{Project: cfg.Project, RunID: st.RunID,
 		CredsDir: filepath.Join(home, ".config", "gcloud"), Image: cfg.DockerImage}
+	if *refresh {
+		n, backup, err := refreshRunConfig(dir, st, cfg)
+		if err != nil {
+			log.Printf("config refresh failed: %v", err)
+			return 2
+		}
+		log.Printf("refreshed %d queued/failed jobs; state backup: %s", n, backup)
+	}
 	n := prepareResume(st, ex, dir, onlyFailed)
 	log.Printf("requeued %d jobs", n)
 	if err := SaveState(dir, st); err != nil {

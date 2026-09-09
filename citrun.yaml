@@ -13,30 +13,32 @@ budgets:
   networks: 90
   subnetworks: 275
   regions:
-    # Measured 2026-07 (europe-west1 and us-central1 are identical).
     europe-west1:    {CPUS: 3000, C3_CPUS: 1920, N2_CPUS: 3000, N2D_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128}
-    us-central1:     {CPUS: 3000, C3_CPUS: 1920, N2_CPUS: 3000, N2D_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128}
+    us-central1:     {CPUS: 3000, C3_CPUS: 1920, N2_CPUS: 3000, N2D_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128, C4A_CPUS: 1760}
     # Unmeasured regions: conservative CPUS seed. Raise after measuring
     # (gcloud compute regions describe <region> --project ciq-test-servers).
+    europe-west3:    {CPUS: 1000, N2_CPUS: 1000, T2A_CPUS: 300}
     europe-west4:    {CPUS: 1000, N2_CPUS: 1000, T2A_CPUS: 300}
     asia-southeast1: {CPUS: 1000, N2_CPUS: 1000, C3_CPUS: 500}
+    asia-northeast1: {CPUS: 1000, N2_CPUS: 1000, C3_CPUS: 500}
     us-east1:        {CPUS: 1000}
     us-east4:        {CPUS: 1000, N2_CPUS: 1000}
     us-west1:        {CPUS: 1000}
+    us-east5:        {CPUS: 1000, C4A_CPUS: 300}
 
 zone_sets:
-  # run_tests.sh REGIONS default
+  # `gcloud compute machine-types list --project=ciq-test-servers --filter='name=c4a-highmem-96-metal' --format='table(name,zone.basename())' --sort-by=zone`
   default:      [europe-west1-b, europe-west1-c, europe-west1-d, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c, us-central1-c]
   t2a:          [us-central1-a, us-central1-b, us-central1-f, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-b, asia-southeast1-c]
   n4d:          [us-central1-a, us-central1-b, us-central1-c, us-east1-b, us-east1-d, europe-west1-c, europe-west4-a, europe-west4-b]
-  n4a:          [us-central1-b]
+  n4a:          [us-central1-b, us-central1-a, us-east1-b, us-east4-a, us-west1-a]
   # default minus europe-west1-* / europe-west4-b / us-central1-c (never enough c4d)
   c4d:          [europe-west4-a, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c]
   # default minus us-central1 (c4 hotattach known issue)
   c4-hotattach: [europe-west1-b, europe-west1-c, europe-west1-d, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c]
-  # Metal-confirmed zones, one per region, from run_metal_x86_parallel.sh's curated list
-  metal-c3:     [europe-west1-b, us-central1-a, us-east4-a, us-west1-a]
-  metal-c4a:    [us-central1-b, us-central1-f]
+  metal-c3:     [europe-west1-b, us-central1-a, us-east4-a, us-west1-a, asia-southeast1-a]
+  # metal-c4a:    [us-central1-b, us-central1-c, us-east4-c, us-east5-b, asia-northeast1-a, europe-west3-a, europe-west4-b]
+  metal-c4a:    [us-central1-a, us-central1-b, us-central1-c]
   sv-flex:      [us-central1-a, us-central1-b, us-central1-c, us-central1-f]
 
 shapes:
@@ -52,12 +54,11 @@ shapes:
   c4-highcpu-4:          {arch: x86, cpus: 4, family: CPUS,     zone_set: default}
   n2-highcpu-2:          {arch: x86, cpus: 2, family: N2_CPUS,  zone_set: default}
   t2a-standard-2:        {arch: arm64, cpus: 2, family: T2A_CPUS, zone_set: t2a}
-  c4a-standard-4:        {arch: arm64, cpus: 4, family: CPUS,     zone_set: default}
+  c4a-standard-4:        {arch: arm64, cpus: 4, family: C4A_CPUS, zone_set: default}
   n4a-standard-2:        {arch: arm64, cpus: 2, family: CPUS,     zone_set: n4a, max_parallel: 12}
-  c3-standard-192-metal: {arch: x86,   cpus: 192, family: C3_CPUS, zone_set: metal-c3,  metal: true}
-  c4a-highmem-96-metal:  {arch: arm64, cpus: 96,  family: CPUS,    zone_set: metal-c4a, metal: true}
+  c3-standard-192-metal: {arch: x86,   cpus: 192, family: C3_CPUS,  zone_set: metal-c3,  metal: true}
+  c4a-highmem-96-metal:  {arch: arm64, cpus: 96,  family: C4A_CPUS, zone_set: metal-c4a, metal: true}
 
-# vms/networks/subnets: test-run-stats-analysis.md §2 (grep-verified);
 # est = median wall-clock; timeout ≈ max(15m, ~3×median).
 suites:
   cvm:                {vms: 6,  timeout: 35m, est: 10m30s}
@@ -68,7 +69,7 @@ suites:
   imageboot:          {vms: 4,  timeout: 20m, est: 4m}
   licensevalidation:  {vms: 1,  timeout: 20m, est: 3m}
   livemigrate:        {vms: 1,  timeout: 25m, est: 6m}
-  loadbalancer:       {vms: 1, networks: 1, subnets: 2, timeout: 30m, est: 8m}
+  loadbalancer:       {vms: 6, networks: 1, subnets: 2, timeout: 30m, est: 8m}
   lssd:               {vms: 1,  timeout: 15m, est: 3m}
   metadata:           {vms: 8,  timeout: 20m, est: 5m}
   network:            {vms: 3, networks: 2, subnets: 2, timeout: 35m, est: 10m}
@@ -95,6 +96,7 @@ matrix:
       - rocky-linux-8-optimized-gcp-nvidia-latest
       - rocky-linux-9-optimized-gcp-nvidia-latest
       - rocky-linux-10-optimized-gcp-nvidia-latest
+      - rocky-linux-10-optimized-gcp-oot-gve
     suites: &allsuites [cvm, disk, guestagent, hostnamevalidation, hotattach, imageboot, licensevalidation, livemigrate, loadbalancer, lssd, metadata, network, packagevalidation, security, ssh, suspendresume, vmspec]
   - name: arm
     shapes: [t2a-standard-2, c4a-standard-4, n4a-standard-2]
@@ -144,9 +146,10 @@ rules:
 quarantine:
   # GCE Secure Boot rejects the rocky-8 optimized-gcp shim; base rocky-8 passes.
   # Whole imageboot suite skipped for these images until the shim is re-signed.
-  - {image: rocky-linux-8-optimized-gcp,               suite: imageboot, reason: "secureboot shim rejected by GCE"}
-  - {image: rocky-linux-8-optimized-gcp-nvidia-580,    suite: imageboot, reason: "secureboot shim rejected by GCE"}
-  - {image: rocky-linux-8-optimized-gcp-nvidia-latest, suite: imageboot, reason: "secureboot shim rejected by GCE"}
+  # Uncommented for Sept builds - GT
+  # - {image: rocky-linux-8-optimized-gcp,               suite: imageboot, reason: "secureboot shim rejected by GCE"}
+  # - {image: rocky-linux-8-optimized-gcp-nvidia-580,    suite: imageboot, reason: "secureboot shim rejected by GCE"}
+  # - {image: rocky-linux-8-optimized-gcp-nvidia-latest, suite: imageboot, reason: "secureboot shim rejected by GCE"}
 
 # Families from test_suites/shapevalidation/setup.go (largest-in-family shape,
 # pinned zones from its ForceZone entries). LockProject there is capacity

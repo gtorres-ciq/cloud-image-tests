@@ -18,10 +18,32 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/GoogleCloudPlatform/cloud-image-tests/cleanerupper"
 	"github.com/GoogleCloudPlatform/cloud-image-tests/utils"
 	daisy "github.com/GoogleCloudPlatform/compute-daisy"
 	"google.golang.org/api/compute/v1"
 )
+
+func TestCreatedVMAndDiskCarryCleanupOwnership(t *testing.T) {
+	twf := NewTestWorkflowForUnitTest("name", "image", "30m")
+	vm, err := twf.CreateTestVM("vm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.instance.Description != cleanerupper.CITOwnershipMarker {
+		t.Fatalf("VM description = %q, want cleanup ownership marker", vm.instance.Description)
+	}
+	if vm.instance.Labels[cleanerupper.CITOwnershipLabel] != cleanerupper.CITOwnershipValue {
+		t.Fatalf("VM labels = %v, want CIT ownership label", vm.instance.Labels)
+	}
+	disks := *twf.wf.Steps[createDisksStepName].CreateDisks
+	if disks[0].Description != cleanerupper.CITOwnershipMarker {
+		t.Fatalf("disk description = %q, want cleanup ownership marker", disks[0].Description)
+	}
+	if disks[0].Labels[cleanerupper.CITOwnershipLabel] != cleanerupper.CITOwnershipValue {
+		t.Fatalf("disk labels = %v, want CIT ownership label", disks[0].Labels)
+	}
+}
 
 // TestAddMetadata tests that *TestVM.AddMetadata succeeds and that it
 // populates the instance.Metadata map.
