@@ -30,6 +30,7 @@ import (
 
 	compute "cloud.google.com/go/compute/apiv1"
 	computepb "cloud.google.com/go/compute/apiv1/computepb"
+	"github.com/GoogleCloudPlatform/cloud-image-tests/cleanerupper"
 	"github.com/GoogleCloudPlatform/cloud-image-tests/utils"
 	"google.golang.org/protobuf/proto"
 )
@@ -436,6 +437,7 @@ func setupLoadBalancer(ctx context.Context, t *testing.T, lbType, backend1, back
 		// Create network endpoint group in lbnet and lbsubnet with GCE_VM_IP type
 		neg := &computepb.NetworkEndpointGroup{
 			Name:                &negName,
+			Description:         proto.String(cleanerupper.CITOwnershipMarker),
 			NetworkEndpointType: proto.String("GCE_VM_IP"),
 			Network:             &network,
 			Subnetwork:          &subnetwork,
@@ -450,6 +452,7 @@ func setupLoadBalancer(ctx context.Context, t *testing.T, lbType, backend1, back
 		// Create network endpoint group in lbnet and lbsubnet with GCE_VM_IP_PORT type
 		neg := &computepb.NetworkEndpointGroup{
 			Name:                &negName,
+			Description:         proto.String(cleanerupper.CITOwnershipMarker),
 			NetworkEndpointType: proto.String("GCE_VM_IP_PORT"),
 			Network:             &network,
 			Subnetwork:          &subnetwork,
@@ -486,6 +489,7 @@ func setupLoadBalancer(ctx context.Context, t *testing.T, lbType, backend1, back
 		CheckIntervalSec: proto.Int32(1),
 		TimeoutSec:       proto.Int32(1),
 		Name:             &healthCheckName,
+		Description:      proto.String(cleanerupper.CITOwnershipMarker),
 		HttpHealthCheck:  httpHc,
 		Type:             proto.String("HTTP"),
 	}
@@ -500,6 +504,7 @@ func setupLoadBalancer(ctx context.Context, t *testing.T, lbType, backend1, back
 	case "L3":
 		// Create INTERNAL tcp backend service with health check
 		backendService := &computepb.BackendService{
+			Description:  proto.String(cleanerupper.CITOwnershipMarker),
 			HealthChecks: []string{fmt.Sprintf("projects/%s/regions/%s/healthChecks/%s", project, region, healthCheckName)},
 			Backends: []*computepb.Backend{
 				{Group: proto.String(fmt.Sprintf("https://www.googleapis.com/compute/v1/projects/%s/zones/%s/networkEndpointGroups/%s", project, zone, negName))},
@@ -517,6 +522,7 @@ func setupLoadBalancer(ctx context.Context, t *testing.T, lbType, backend1, back
 
 		// Create forwarding rule to send traffic to to the load balancer
 		forwardingRule := &computepb.ForwardingRule{
+			Description:         proto.String(cleanerupper.CITOwnershipMarker),
 			LoadBalancingScheme: proto.String("INTERNAL"),
 			Network:             &network,
 			Subnetwork:          &subnetwork,
@@ -535,6 +541,7 @@ func setupLoadBalancer(ctx context.Context, t *testing.T, lbType, backend1, back
 	case "L7":
 		// Create INTERNAL_MANAGED http backend service with health check
 		backendService := &computepb.BackendService{
+			Description:  proto.String(cleanerupper.CITOwnershipMarker),
 			HealthChecks: []string{fmt.Sprintf("projects/%s/regions/%s/healthChecks/%s", project, region, healthCheckName)},
 			Backends: []*computepb.Backend{
 				{
@@ -560,6 +567,7 @@ func setupLoadBalancer(ctx context.Context, t *testing.T, lbType, backend1, back
 			Region:  region,
 			UrlMapResource: &computepb.UrlMap{
 				Name:           &urlMapName,
+				Description:    proto.String(cleanerupper.CITOwnershipMarker),
 				DefaultService: proto.String(fmt.Sprintf("projects/%s/regions/%s/backendServices/%s", project, region, backendName)),
 			},
 		}
@@ -570,14 +578,16 @@ func setupLoadBalancer(ctx context.Context, t *testing.T, lbType, backend1, back
 			Project: project,
 			Region:  region,
 			TargetHttpProxyResource: &computepb.TargetHttpProxy{
-				Name:   &httpProxyName,
-				UrlMap: proto.String(fmt.Sprintf("projects/%s/regions/%s/urlMaps/%s", project, region, urlMapName)),
+				Name:        &httpProxyName,
+				Description: proto.String(cleanerupper.CITOwnershipMarker),
+				UrlMap:      proto.String(fmt.Sprintf("projects/%s/regions/%s/urlMaps/%s", project, region, urlMapName)),
 			},
 		}
 		waitFor(httpProxyClient.Insert(ctx, proxyInsertReq))
 
 		// Create forwarding rule to send traffic to to the proxy
 		forwardingRule := &computepb.ForwardingRule{
+			Description:         proto.String(cleanerupper.CITOwnershipMarker),
 			LoadBalancingScheme: proto.String("INTERNAL_MANAGED"),
 			Network:             &network,
 			Subnetwork:          &subnetwork,

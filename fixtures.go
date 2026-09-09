@@ -23,6 +23,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/GoogleCloudPlatform/cloud-image-tests/cleanerupper"
 	daisy "github.com/GoogleCloudPlatform/compute-daisy"
 	"github.com/google/uuid"
 	computeBeta "google.golang.org/api/compute/v0.beta"
@@ -1121,6 +1122,7 @@ func (t *TestWorkflow) appendCreateFirewallStep(firewallName, networkName, proto
 	firewall := &daisy.FirewallRule{
 		Firewall: compute.Firewall{
 			Name:         firewallName,
+			Description:  cleanerupper.CITDescription(""),
 			Network:      networkName,
 			SourceRanges: ranges,
 			Allowed: []*compute.FirewallAllowed{

@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/GoogleCloudPlatform/cloud-image-tests/utils"
 	"google.golang.org/api/compute/v1"
@@ -52,21 +53,41 @@ func getLinuxMountPath(ctx context.Context) (string, error) {
 	// searching for the symlink in the by-id directory to find the mount point (needed for metals)
 	symlinkDir := "/dev/disk/by-id/"
 	expectedPrefix := "google-" + diskName
-	foundSymlink := ""
-	entries, err := os.ReadDir(symlinkDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to read %s: %w", symlinkDir, err)
-	}
-	for _, entry := range entries {
-		if entry.Type()&os.ModeSymlink != 0 && strings.HasPrefix(entry.Name(), expectedPrefix) {
-			foundSymlink = filepath.Join(symlinkDir, entry.Name())
-			break
+	// udev creates the symlink asynchronously after the attach operation
+	// reports done; on hyperdisk-only shapes (e.g. c4) the device can appear
+	// in the guest several seconds later, so poll instead of checking once.
+	deadline := time.Now().Add(2 * time.Minute)
+	var lastErr error
+	for {
+		foundSymlink := ""
+		entries, err := os.ReadDir(symlinkDir)
+		if err != nil {
+			return "", fmt.Errorf("failed to read %s: %w", symlinkDir, err)
+		}
+		for _, entry := range entries {
+			if entry.Type()&os.ModeSymlink != 0 && strings.HasPrefix(entry.Name(), expectedPrefix) {
+				foundSymlink = filepath.Join(symlinkDir, entry.Name())
+				break
+			}
+		}
+		if foundSymlink == "" {
+			lastErr = fmt.Errorf("symlink with prefix %s not found", expectedPrefix)
+		} else {
+			path, err := filepath.EvalSymlinks(foundSymlink)
+			if err == nil {
+				return path, nil
+			}
+			// the symlink dangles briefly while udev repopulates the device
+			lastErr = fmt.Errorf("failed to resolve symlink %s: %v", foundSymlink, err)
+		}
+		if time.Now().After(deadline) {
+			return "", lastErr
+		}
+		time.Sleep(time.Second)
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("context expired waiting for disk symlink: %v, last error: %v", ctx.Err(), lastErr)
 		}
 	}
-	if foundSymlink == "" {
-		return "", fmt.Errorf("symlink with prefix %s not found", expectedPrefix)
-	}
-	return filepath.EvalSymlinks(foundSymlink)
 }
 
 func mountLinuxDiskToPath(ctx context.Context, mountDiskDir string, isReattach bool) error {

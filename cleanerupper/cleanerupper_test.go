@@ -40,6 +40,10 @@ func deleteEverything(any) bool { return true }
 func deleteNothing(any) bool { return false }
 
 func TestAgePolicy(t *testing.T) {
+	const (
+		citName        = "resource"
+		citDescription = CITOwnershipMarker
+	)
 	testcases := []struct {
 		name     string
 		time     time.Time
@@ -67,38 +71,50 @@ func TestAgePolicy(t *testing.T) {
 		{
 			name:     "Old Network",
 			time:     time.Now(),
-			resource: &compute.Network{CreationTimestamp: "1970-01-01T00:00:01+00:00"},
+			resource: &compute.Network{Name: citName, Description: citDescription, CreationTimestamp: "1970-01-01T00:00:01+00:00"},
 			output:   true,
 		},
 		{
 			name:     "Old Image",
 			time:     time.Now(),
-			resource: &compute.Image{CreationTimestamp: "1970-01-01T00:00:01+00:00"},
+			resource: &compute.Image{Name: citName, Description: citDescription, CreationTimestamp: "1970-01-01T00:00:01+00:00"},
 			output:   true,
 		},
 		{
 			name:     "Old Disk",
 			time:     time.Now(),
-			resource: &compute.Disk{CreationTimestamp: "1970-01-01T00:00:01+00:00"},
+			resource: &compute.Disk{Name: citName, Description: citDescription, CreationTimestamp: "1970-01-01T00:00:01+00:00"},
 			output:   true,
 		},
 		{
 			name:     "Old Machine Image",
 			time:     time.Now(),
-			resource: &compute.MachineImage{CreationTimestamp: "1970-01-01T00:00:01+00:00"},
+			resource: &compute.MachineImage{Name: citName, Description: citDescription, CreationTimestamp: "1970-01-01T00:00:01+00:00"},
 			output:   true,
 		},
 		{
 			name:     "Old Snapshot",
 			time:     time.Now(),
-			resource: &compute.Snapshot{CreationTimestamp: "1970-01-01T00:00:01+00:00"},
+			resource: &compute.Snapshot{Name: citName, Description: citDescription, CreationTimestamp: "1970-01-01T00:00:01+00:00"},
 			output:   true,
 		},
 		{
 			name:     "Old Instance",
 			time:     time.Now(),
-			resource: &compute.Instance{CreationTimestamp: "1970-01-01T00:00:01+00:00"},
+			resource: &compute.Instance{Name: citName, Description: citDescription, CreationTimestamp: "1970-01-01T00:00:01+00:00"},
 			output:   true,
+		},
+		{
+			name:     "Old unowned instance is kept",
+			time:     time.Now(),
+			resource: &compute.Instance{Name: "rocky-8-595-tester", CreationTimestamp: "1970-01-01T00:00:01+00:00"},
+			output:   false,
+		},
+		{
+			name:     "Old unowned network is kept",
+			time:     time.Now(),
+			resource: &compute.Network{Name: "irdma", CreationTimestamp: "1970-01-01T00:00:01+00:00"},
+			output:   false,
 		},
 		{
 			name:     "Keep label in labels",
@@ -771,7 +787,7 @@ func TestCleanNetworks(t *testing.T) {
 		} else if r.Method == "GET" && r.URL.String() == fmt.Sprintf("/projects/%s/zones/%s/networkEndpointGroups?alt=json&pageToken=&prettyPrint=false", "test-project", "test-region-a") {
 			fmt.Fprint(w, fmt.Sprintf(`{"items":[{"SelfLink": "projects/test-project/zones/test-region-a/networkEndpointGroups/test-network-endpoint-group", "Name": "test-network-endpoint-group", "Network": "projects/test-project/global/networks/test-network"}]}`))
 		} else if r.Method == "GET" && r.URL.String() == fmt.Sprintf("/projects/%s/global/routes?alt=json&pageToken=&prettyPrint=false", "test-project") {
-			fmt.Fprint(w, `{"items":[{"Network": "projects/test-project/global/networks/fake-network"}, {"SelfLink": "projects/test-project/global/routes/test-route", "Name": "test-route", "Network": "projects/test-project/global/networks/test-network"}]}`)
+			fmt.Fprint(w, `{"items":[{"Network": "projects/test-project/global/networks/fake-network"}, {"SelfLink": "projects/test-project/global/routes/default-route-test-network", "Name": "default-route-test-network", "Network": "projects/test-project/global/networks/test-network", "NextHopNetwork": "projects/test-project/global/networks/test-network"}, {"SelfLink": "projects/test-project/global/routes/test-route", "Name": "test-route", "Network": "projects/test-project/global/networks/test-network"}]}`)
 		} else if r.Method == "GET" && r.URL.String() == fmt.Sprintf("/projects/%s/aggregated/subnetworks?alt=json&pageToken=&prettyPrint=false", "test-project") {
 			fmt.Fprint(w, `{"items":{"regions/test-region":{"subnetworks":[{"Network": "projects/test-project/global/networks/fake-network"}, {"Network": "projects/test-project/global/networks/test-network","SelfLink": "projects/test-project/regions/test-region/subnetworks/test-subnetwork", "Name": "test-subnetwork", "Region": "test-region", "IpCidrRange": "10.1.0.0/48"}, {"Network": "projects/test-project/global/networks/test-network","SelfLink": "projects/test-project/regions/test-region/subnetworks/test-subnetwork-2", "Name": "test-subnetwork-2", "Region": "test-region", "IpCidrRange": "10.128.0.0/48"}]}}}`)
 		} else if r.Method == "DELETE" && r.URL.String() == fmt.Sprintf("/projects/%s/global/firewalls/test-firewall?alt=json&prettyPrint=false", "test-project") {
