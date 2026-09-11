@@ -200,6 +200,14 @@ func requiredLicenseList(t *imagetest.TestWorkflow) ([]string, error) {
 		}
 	case utils.IsOracle(image.Name):
 		project = "oracle-linux-cloud"
+	case utils.IsRocky(image.Name) && strings.HasSuffix(image.Family, "-oot-gve"):
+		project = "rocky-linux-cloud"
+		transform = func() {
+			requiredLicenses = []string{
+				fmt.Sprintf(licenseURLTmpl, project, strings.TrimSuffix(image.Family, "-oot-gve")),
+				fmt.Sprintf(licenseURLTmpl, project, image.Family),
+			}
+		}
 	case utils.IsRocky(image.Name):
 		project = "rocky-linux-cloud"
 	case utils.IsSLES(image.Name) && utils.IsSAP(image.Name):
