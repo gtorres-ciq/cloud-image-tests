@@ -4,31 +4,72 @@
 // own).
 //
 // It DRY-RUNS by default (only lists what it would delete). Pass -no-dry-run to
-// actually delete. Only resources created more than -older-than ago are
-// considered, so in-flight tests are safe; the default network,
+// actually delete. Cleanup can select CIT-owned resources by age, or resources
+// belonging to specific Daisy workflow IDs. The default network,
 // deletion-protected instances, and resources labeled do-not-delete are always
-// kept (see cleanerupper.AgePolicy).
+// kept.
 //
 // Auth uses Application Default Credentials:
 //
 //	gcloud auth application-default login   # once
-//	go run ./cmd/cleanup -project ciq-test-servers                # dry-run (list only)
-//	go run ./cmd/cleanup -project ciq-test-servers -no-dry-run    # actually delete
+//	go run ./cmd/cleanup -project <project_name>                # dry-run (list only)
+//	go run ./cmd/cleanup -project <project_name> -no-dry-run    # actually delete
+//	go run ./cmd/cleanup -project <project_name> -workflow-ids bdg12,prqz9
 package main
 
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/GoogleCloudPlatform/cloud-image-tests/cleanerupper"
 )
 
+// Daisy ID characters
+var workflowIDPattern = regexp.MustCompile(`^[bdghjlmnpqrstvwxyz0-9]{5}$`)
+
+// cleanupPolicy selects workflow mode when IDs are supplied; workflow cleanup
+// intentionally has no age cutoff so it can remove fresh leftovers.
+func cleanupPolicy(workflowIDsCSV string, cutoff time.Time) (cleanerupper.PolicyFunc, []string, error) {
+	if strings.TrimSpace(workflowIDsCSV) == "" {
+		return cleanerupper.AgePolicy(cutoff), nil, nil
+	}
+
+	seen := map[string]bool{}
+	var ids []string
+	for _, raw := range strings.Split(workflowIDsCSV, ",") {
+		id := strings.TrimSpace(raw)
+		if !workflowIDPattern.MatchString(id) {
+			return nil, nil, fmt.Errorf("invalid Daisy workflow ID %q (want 5 lowercase Daisy ID characters)", id)
+		}
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+
+	policies := make([]cleanerupper.PolicyFunc, 0, len(ids))
+	for _, id := range ids {
+		policies = append(policies, cleanerupper.WorkflowPolicy(id))
+	}
+	return func(resource any) bool {
+		for _, policy := range policies {
+			if policy(resource) {
+				return true
+			}
+		}
+		return false
+	}, ids, nil
+}
+
 func main() {
 	project := flag.String("project", "", "GCP project to clean (required)")
 	olderThan := flag.Duration("older-than", 2*time.Hour, "only touch resources created more than this ago; keep it larger than your longest in-flight test so running VMs are spared")
+	workflowIDsCSV := flag.String("workflow-ids", "", "comma-separated Daisy workflow IDs to clean instead of selecting resources by age")
 	regionsCSV := flag.String("regions", "europe-west1", "comma-separated regions for load-balancer resource cleanup")
 	noDryRun := flag.Bool("no-dry-run", false, "actually delete; default is a dry-run that only lists what would be deleted")
 	flag.Parse()
@@ -45,11 +86,19 @@ func main() {
 	}
 
 	cutoff := time.Now().Add(-*olderThan)
-	policy := cleanerupper.AgePolicy(cutoff)
+	policy, workflowIDs, err := cleanupPolicy(*workflowIDsCSV, cutoff)
+	if err != nil {
+		log.Fatal(err)
+	}
 	regions := strings.Split(*regionsCSV, ",")
 
 	verb := "deleted"
-	if dryRun {
+	if len(workflowIDs) > 0 && dryRun {
+		verb = "would delete"
+		log.Printf("DRY-RUN: nothing will be deleted. Resources belonging to Daisy workflow IDs [%s] in %s are eligible. Re-run with -no-dry-run to delete.", strings.Join(workflowIDs, ", "), *project)
+	} else if len(workflowIDs) > 0 {
+		log.Printf("DELETING resources belonging to Daisy workflow IDs [%s] in %s.", strings.Join(workflowIDs, ", "), *project)
+	} else if dryRun {
 		verb = "would delete"
 		log.Printf("DRY-RUN: nothing will be deleted. Resources in %s created before %s (older than %s) are eligible. Re-run with -no-dry-run to delete.",
 			*project, cutoff.Format(time.RFC3339), *olderThan)
