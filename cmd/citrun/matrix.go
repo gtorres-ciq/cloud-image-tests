@@ -157,9 +157,21 @@ func ExpandJobs(cfg *Config, f JobFilter) ([]Job, error) {
 					if !keepJob(cfg, &j) {
 						continue
 					}
-					applyQuarantine(cfg, &j)
-					if err := add(j); err != nil {
-						return nil, err
+					if m.EachZone {
+						for _, zone := range j.Zones {
+							zonedJob := j
+							zonedJob.ID += "_" + zone
+							zonedJob.Zones = []string{zone}
+							applyQuarantine(cfg, &zonedJob)
+							if err := add(zonedJob); err != nil {
+								return nil, err
+							}
+						}
+					} else {
+						applyQuarantine(cfg, &j)
+						if err := add(j); err != nil {
+							return nil, err
+						}
 					}
 				}
 			}
