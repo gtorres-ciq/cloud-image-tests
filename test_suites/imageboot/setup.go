@@ -29,10 +29,10 @@ var Name = "imageboot"
 var sbUnsupported = []*regexp.Regexp{
 	// Permanent exceptions
 	regexp.MustCompile("debian-1[01].*arm64"),
-	regexp.MustCompile("windows-server-2012-r2-dc-core"),                // Working but not easily testable and EOL in 1.5 months
-	regexp.MustCompile("rhel-10-2.*gvnic-baremetal"),                    // OOT driver incompatible with Secure Boot policies
-	regexp.MustCompile("rhel-10-2.*oot-gve"),                            // gVNIC BareMetal duplicate with different name
-	regexp.MustCompile("^rocky-linux-10-optimized-gcp-oot-gve(-v.*)?$"), // OOT driver incompatible with Secure Boot policies
+	regexp.MustCompile("windows-server-2012-r2-dc-core"), // Working but not easily testable and EOL in 1.5 months
+	regexp.MustCompile("rhel-10-2.*gvnic-baremetal"),     // OOT driver incompatible with Secure Boot policies
+	regexp.MustCompile("rhel-10-2.*oot-gve"),             // gVNIC BareMetal duplicate with different name
+	regexp.MustCompile("rocky-linux.*oot-gve"),           // Rocky OOT drivers are incompatible with Secure Boot policies
 	// Temporary exceptions
 	// Waiting on MSFT signed shims:
 	regexp.MustCompile("rhel-8.*arm64"),
