@@ -51,21 +51,28 @@ type imageBootTimeThreshold struct {
 	MaxTime int // In seconds
 }
 
-func TestRockyOOTGVEImageDoesNotAttemptSecureBoot(t *testing.T) {
-	image := "rocky-linux-10-optimized-gcp-oot-gve-v20260911"
-	for _, unsupported := range sbUnsupported {
-		if unsupported.MatchString(image) {
-			return
-		}
+func TestRockyOOTGVEImagesDoNotAttemptSecureBoot(t *testing.T) {
+	images := []string{
+		"rocky-linux-10-optimized-gcp-oot-gve-v20260911",
+		"custom-rocky-linux-10-optimized-gcp-oot-gve-v20260911",
 	}
-	t.Fatalf("%q must skip Secure Boot because its OOT gVNIC driver is incompatible", image)
+	for _, image := range images {
+		t.Run(image, func(t *testing.T) {
+			for _, unsupported := range sbUnsupported {
+				if unsupported.MatchString(image) {
+					return
+				}
+			}
+			t.Fatalf("%q must skip Secure Boot because its OOT gVNIC driver is incompatible", image)
+		})
+	}
 }
 
-func TestRockyOOTGVELookalikeRetainsSecureBootCoverage(t *testing.T) {
-	image := "custom-rocky-linux-10-optimized-gcp-oot-gve-v20260911"
+func TestNonRockyOOTGVEImageRetainsSecureBootCoverage(t *testing.T) {
+	image := "windows-server-2025-oot-gve-v20260911"
 	for _, unsupported := range sbUnsupported {
 		if unsupported.MatchString(image) {
-			t.Fatalf("lookalike image %q unexpectedly skips Secure Boot", image)
+			t.Fatalf("non-Rocky image %q unexpectedly skips Secure Boot", image)
 		}
 	}
 }
