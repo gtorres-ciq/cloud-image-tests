@@ -26,6 +26,12 @@ import (
 // Name is the name of the test package. It must match the directory name.
 var Name = "packagevalidation"
 
+const ootGVEImageName = "rocky-linux-10-optimized-gcp-oot-gve"
+
+func isOOTGVEImage(imageName string) bool {
+	return imageName == ootGVEImageName || strings.HasPrefix(imageName, ootGVEImageName+"-v")
+}
+
 // TestSetup sets up the test workflow.
 func TestSetup(t *imagetest.TestWorkflow) error {
 	vm1, err := t.CreateTestVM("installedPackages")
@@ -33,6 +39,9 @@ func TestSetup(t *imagetest.TestWorkflow) error {
 		return err
 	}
 	tests := "TestStandardPrograms|TestGuestPackages"
+	if isOOTGVEImage(t.Image.Name) {
+		tests += "|TestOOTGVEDNFExcludes|TestOOTGVEModule"
+	}
 	// Artifact registry plugin is not installed on all images. Test only runs if
 	// the image is built with artifact registry plugin. Tests requires
 	// apt-transport-artifact-registry or dnf-plugin-artifact-registry installed.
