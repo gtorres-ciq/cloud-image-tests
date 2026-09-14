@@ -51,6 +51,25 @@ type imageBootTimeThreshold struct {
 	MaxTime int // In seconds
 }
 
+func TestRockyOOTGVEImageDoesNotAttemptSecureBoot(t *testing.T) {
+	image := "rocky-linux-10-optimized-gcp-oot-gve-v20260911"
+	for _, unsupported := range sbUnsupported {
+		if unsupported.MatchString(image) {
+			return
+		}
+	}
+	t.Fatalf("%q must skip Secure Boot because its OOT gVNIC driver is incompatible", image)
+}
+
+func TestRockyOOTGVELookalikeRetainsSecureBootCoverage(t *testing.T) {
+	image := "custom-rocky-linux-10-optimized-gcp-oot-gve-v20260911"
+	for _, unsupported := range sbUnsupported {
+		if unsupported.MatchString(image) {
+			t.Fatalf("lookalike image %q unexpectedly skips Secure Boot", image)
+		}
+	}
+}
+
 const (
 	// See man 7 systemd.time
 	systemdTimeFormat = "Mon 2006-01-02 15:04:05 MST"

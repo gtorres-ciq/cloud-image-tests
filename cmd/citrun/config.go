@@ -50,10 +50,11 @@ type Suite struct {
 }
 
 type MatrixConfig struct {
-	Name   string   `yaml:"name"`
-	Shapes []string `yaml:"shapes"`
-	Images []string `yaml:"images"`
-	Suites []string `yaml:"suites"`
+	Name     string   `yaml:"name"`
+	Shapes   []string `yaml:"shapes"`
+	Images   []string `yaml:"images"`
+	Suites   []string `yaml:"suites"`
+	EachZone bool     `yaml:"each_zone"`
 }
 
 type SuiteOnlyOnRule struct {
@@ -193,8 +194,12 @@ func (c *Config) Validate() error {
 	}
 	for _, m := range c.Matrix {
 		for _, sh := range m.Shapes {
-			if _, ok := c.Shapes[sh]; !ok {
+			shape, ok := c.Shapes[sh]
+			if !ok {
 				return fmt.Errorf("matrix %s: unknown shape %q", m.Name, sh)
+			}
+			if m.EachZone && len(c.ZoneSets[shape.ZoneSet]) == 0 {
+				return fmt.Errorf("matrix %s: each_zone shape %q has no zones in zone_set %q", m.Name, sh, shape.ZoneSet)
 			}
 		}
 		for _, su := range m.Suites {

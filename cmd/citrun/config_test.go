@@ -87,3 +87,13 @@ func TestValidateRejects(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateRejectsEachZoneMatrixWithNoZones(t *testing.T) {
+	cfgYAML := strings.Replace(miniConfig, "zs1: [r1-a, r1-b]", "zs1: []", 1)
+	cfgYAML = strings.Replace(cfgYAML, "  - name: x86\n    shapes:", "  - name: x86\n    each_zone: true\n    shapes:", 1)
+
+	_, err := LoadConfig(writeTemp(t, cfgYAML))
+	if err == nil || !strings.Contains(err.Error(), "each_zone") {
+		t.Fatalf("LoadConfig error = %v, want each_zone matrix with no zones rejected", err)
+	}
+}

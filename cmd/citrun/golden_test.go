@@ -63,13 +63,39 @@ func TestGoldenParity(t *testing.T) {
 		}
 	}
 
-	if n := len(cellsFor(jobs, "x86-metal")); n != 108 {
-		t.Errorf("x86-metal cells = %d, want 108 (12 images x 9 suites)", n)
+	if n := len(cellsFor(jobs, "x86-metal")); n != 117 {
+		t.Errorf("x86-metal cells = %d, want 117 (13 images x 9 suites)", n)
+	}
+	if n := len(cellsFor(jobs, "u4s")); n != 24 {
+		t.Errorf("u4s cells = %d, want 24 (1 image x 12 suites x 2 zones)", n)
+	}
+	u4sZones := map[string]int{}
+	for _, j := range jobs {
+		if j.Config != "u4s" {
+			continue
+		}
+		if j.BaseImage != "rocky-linux-10-optimized-gcp-oot-gve" || j.Shape != "u4s-standard-4" {
+			t.Errorf("unexpected u4s cell: %+v", j)
+		}
+		if j.Suite == "livemigrate" {
+			t.Errorf("u4s must not run unsupported livemigrate suite: %+v", j)
+		}
+		if j.MaxParallel != 1 || j.BudgetKey != "U4S_CPUS" {
+			t.Errorf("u4s cell %q has unsafe quota controls: MaxParallel=%d BudgetKey=%q", j.ID, j.MaxParallel, j.BudgetKey)
+		}
+		if len(j.Zones) != 1 {
+			t.Errorf("u4s cell %q must target exactly one zone, got %v", j.ID, j.Zones)
+			continue
+		}
+		u4sZones[j.Zones[0]]++
+	}
+	if u4sZones["us-south1-d"] != 12 || u4sZones["us-south1-e"] != 12 {
+		t.Errorf("u4s zone coverage = %v, want 12 jobs in each us-south1 zone", u4sZones)
 	}
 	if n := len(cellsFor(jobs, "shapevalidation")); n != 10 {
 		t.Errorf("shapevalidation jobs = %d, want 10", n)
 	}
-	if len(jobs) != 2030 {
-		t.Errorf("total jobs = %d, want 2030", len(jobs))
+	if len(jobs) != 2179 {
+		t.Errorf("total jobs = %d, want 2179", len(jobs))
 	}
 }
