@@ -43,6 +43,12 @@ func TestGoldenParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got := cfg.Budgets.Regions["us-south1"]["U4S_CPUS"]; got != 1152 {
+		t.Errorf("us-south1 U4S_CPUS budget = %d, want 1152", got)
+	}
+	if got := cfg.Budgets.Regions["us-south1"]["CPUS"]; got != 1152 {
+		t.Errorf("us-south1 CPUS budget = %d, want 1152 so it does not constrain U4S_CPUS", got)
+	}
 
 	for cfgName, golden := range map[string]string{
 		"x86": "cells-x86.txt", "arm": "cells-arm.txt", "arm-metal": "cells-arm-metal.txt",

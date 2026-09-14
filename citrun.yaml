@@ -26,8 +26,8 @@ budgets:
     us-west1:        {CPUS: 1000}
     us-east5:        {CPUS: 1000, C4A_CPUS: 300}
     # U4 quotas are zonal. Keep U4S serialized until the scheduler supports
-    # zonal budgets, and use one zone's documented allocation as a safe cap.
-    us-south1:       {CPUS: 576, U4S_CPUS: 576}
+    # zonal budgets, and use one zone's measured allocation as a safe cap.
+    us-south1:       {CPUS: 1152, U4S_CPUS: 1152}
 
 zone_sets:
   # `gcloud compute machine-types list --project=ciq-test-servers --filter='name=c4a-highmem-96-metal' --format='table(name,zone.basename())' --sort-by=zone`
