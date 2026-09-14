@@ -111,6 +111,36 @@ func TestExpandFilter(t *testing.T) {
 	}
 }
 
+func TestExpandEachZoneCreatesIndependentJobs(t *testing.T) {
+	cfgYAML := strings.Replace(rulesConfig,
+		"  - name: x86\n    shapes:",
+		"  - name: x86\n    each_zone: true\n    shapes:", 1)
+	jobs := expand(t, cfgYAML, JobFilter{Images: []string{"img-a"}, Shapes: []string{"n1-standard-4"}, Suites: []string{"ssh"}})
+
+	if len(jobs) != 3 {
+		t.Fatalf("each-zone jobs = %d, want 3: %+v", len(jobs), jobs)
+	}
+	want := map[string]string{
+		"img-a_n1-standard-4_ssh_r1-a": "r1-a",
+		"img-a_n1-standard-4_ssh_r1-b": "r1-b",
+		"img-a_n1-standard-4_ssh_r2-a": "r2-a",
+	}
+	for _, job := range jobs {
+		zone, ok := want[job.ID]
+		if !ok {
+			t.Errorf("unexpected each-zone job ID %q", job.ID)
+			continue
+		}
+		if len(job.Zones) != 1 || job.Zones[0] != zone {
+			t.Errorf("job %q zones = %v, want [%s]", job.ID, job.Zones, zone)
+		}
+		delete(want, job.ID)
+	}
+	if len(want) != 0 {
+		t.Errorf("missing each-zone jobs: %v", want)
+	}
+}
+
 func TestExpandShapeValidation(t *testing.T) {
 	svYAML := strings.Replace(rulesConfig, "quarantine:", `shapevalidation:
   images: [img-a]

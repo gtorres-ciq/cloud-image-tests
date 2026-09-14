@@ -23,7 +23,7 @@ parallel:
 Between them: no shared state (a crash meant starting over or manually
 diffing junit files), no budget awareness beyond the metal script's
 hand-rolled region list, and a multi-day wall-clock run. `citrun` is one
-binary that does resource-aware scheduling for the entire 2,030-job matrix
+binary that does resource-aware scheduling for the entire 2,179-job matrix
 (including shapevalidation) with one `state.json`/`events.jsonl` per run and
 one report at the end. See
 `docs/superpowers/specs/2026-08-10-test-execution-design.md` for the full
@@ -206,6 +206,12 @@ shape needs a `zone_set` that already has budgets for every region in it
 combination, add a `quarantine:` entry with a `reason` — quarantined jobs
 still expand and appear in `state.json`/reports (status
 `skipped_quarantine`) but the scheduler never admits them.
+
+By default, the zones in a shape's `zone_set` are placement alternatives:
+one job runs in one zone, and the remaining zones are available for retry.
+Set `each_zone: true` on a matrix entry when every zone is part of the test
+coverage. `citrun` then creates one independently reported job per zone,
+pins each job to that zone, and appends the zone to its job ID.
 
 **Any of these changes will change `ExpandJobs`' output — and
 `cmd/citrun/golden_test.go`'s `TestGoldenParity` exists specifically to

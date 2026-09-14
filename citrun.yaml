@@ -25,6 +25,9 @@ budgets:
     us-east4:        {CPUS: 1000, N2_CPUS: 1000}
     us-west1:        {CPUS: 1000}
     us-east5:        {CPUS: 1000, C4A_CPUS: 300}
+    # U4 quotas are zonal. Keep U4S serialized until the scheduler supports
+    # zonal budgets, and use one zone's documented allocation as a safe cap.
+    us-south1:       {CPUS: 576, U4S_CPUS: 576}
 
 zone_sets:
   # `gcloud compute machine-types list --project=ciq-test-servers --filter='name=c4a-highmem-96-metal' --format='table(name,zone.basename())' --sort-by=zone`
@@ -39,6 +42,7 @@ zone_sets:
   metal-c3:     [europe-west1-b, us-central1-a, us-east4-a, us-west1-a, asia-southeast1-a]
   # metal-c4a:    [us-central1-b, us-central1-c, us-east4-c, us-east5-b, asia-northeast1-a, europe-west3-a, europe-west4-b]
   metal-c4a:    [us-central1-a, us-central1-b, us-central1-c]
+  u4s:          [us-south1-d, us-south1-e]
   sv-flex:      [us-central1-a, us-central1-b, us-central1-c, us-central1-f]
 
 shapes:
@@ -58,6 +62,8 @@ shapes:
   n4a-standard-2:        {arch: arm64, cpus: 2, family: CPUS,     zone_set: n4a, max_parallel: 12}
   c3-standard-192-metal: {arch: x86,   cpus: 192, family: C3_CPUS,  zone_set: metal-c3,  metal: true}
   c4a-highmem-96-metal:  {arch: arm64, cpus: 96,  family: C4A_CPUS, zone_set: metal-c4a, metal: true}
+  # U4 quotas are per zone; serialize this shape until citrun models zonal budgets.
+  u4s-standard-4:        {arch: x86, cpus: 4, family: U4S_CPUS, zone_set: u4s, max_parallel: 1}
 
 # est = median wall-clock; timeout ≈ max(15m, ~3×median).
 suites:
@@ -122,6 +128,11 @@ matrix:
     shapes: [c3-standard-192-metal]
     images: *x86images
     suites: *allsuites
+  - name: u4s
+    each_zone: true
+    shapes: [u4s-standard-4]
+    images: [rocky-linux-10-optimized-gcp-oot-gve]
+    suites: *allsuites
 
 # Rules apply to matrix configs only; shapevalidation families below are self-contained (zones/cpus per family) and only quarantine applies to them.
 rules:
@@ -140,6 +151,8 @@ rules:
   - drop: {shapes: [c4a-highmem-96-metal], images: ["rocky-linux-8*"]}
   # c4 hotattach avoids us-central1 (run_tests.sh:360-370)
   - zone_set: {shapes: ["c4-standard*"], suites: [hotattach], set: c4-hotattach}
+  # U4 does not support simulated host maintenance events.
+  - drop: {shapes: ["u4s-*"], suites: [livemigrate]}
   # Metal boots are slow; give every metal job more headroom
   - timeout: {shapes: ["*-metal"], value: 45m}
 
