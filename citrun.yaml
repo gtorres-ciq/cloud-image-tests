@@ -1,8 +1,4 @@
 # citrun.yaml — the full CIT matrix as data.
-# Encodes what run_tests.sh expressed as nested if-trees. Sources:
-#   shapes/suites/skips: run_tests.sh (pre-citrun)
-#   budgets: measured quotas 2026-07 (ciq-test-servers); see the design spec.
-#   suite VM/net counts + medians: test-run-stats-analysis.md
 project: ciq-test-servers
 image_prefix: projects/gce-ciq-images/global/images/family
 docker_image: cloud-image-tests
@@ -27,7 +23,7 @@ budgets:
     us-east5:        {CPUS: 1000, C4A_CPUS: 300}
     # U4 quotas are zonal. Keep U4S serialized until the scheduler supports
     # zonal budgets, and use one zone's measured allocation as a safe cap.
-    us-south1:       {CPUS: 1152, U4S_CPUS: 1152}
+    us-south1:       {CPUS: 1152, U4S_CPUS: 1152, U4C_CPUS: 480}
 
 zone_sets:
   # `gcloud compute machine-types list --project=ciq-test-servers --filter='name=c4a-highmem-96-metal' --format='table(name,zone.basename())' --sort-by=zone`
@@ -43,6 +39,7 @@ zone_sets:
   # metal-c4a:    [us-central1-b, us-central1-c, us-east4-c, us-east5-b, asia-northeast1-a, europe-west3-a, europe-west4-b]
   metal-c4a:    [us-central1-a, us-central1-b, us-central1-c]
   u4s:          [us-south1-d, us-south1-e]
+  u4c:          [us-south1-d, us-south1-e]
   sv-flex:      [us-central1-a, us-central1-b, us-central1-c, us-central1-f]
 
 shapes:
@@ -64,6 +61,9 @@ shapes:
   c4a-highmem-96-metal:  {arch: arm64, cpus: 96,  family: C4A_CPUS, zone_set: metal-c4a, metal: true}
   # U4 quotas are per zone; serialize this shape until citrun models zonal budgets.
   u4s-standard-4:        {arch: x86, cpus: 4, family: U4S_CPUS, zone_set: u4s, max_parallel: 1}
+  # U4C quota is zonal. The dedicated smoke suite creates one VM, and
+  # max_parallel keeps bare-metal provisioning serialized across both zones.
+  u4c-standard-120-metal: {arch: x86, cpus: 120, family: U4C_CPUS, zone_set: u4c, metal: true, max_parallel: 1}
 
 # est = median wall-clock; timeout ≈ max(15m, ~3×median).
 suites:
@@ -85,6 +85,7 @@ suites:
   suspendresume:      {vms: 1,  timeout: 20m, est: 3m30s}
   vmspec:             {vms: 1, networks: 2, subnets: 2, timeout: 35m, est: 6m30s}
   shapevalidation:    {vms: 1,  timeout: 30m, est: 5m30s}
+  u4c:                {vms: 1, networks: 2, subnets: 3, timeout: 45m, est: 10m}
 
 matrix:
   - name: x86
@@ -133,6 +134,11 @@ matrix:
     shapes: [u4s-standard-4]
     images: [rocky-linux-10-optimized-gcp-oot-gve]
     suites: *allsuites
+  - name: u4c
+    each_zone: true
+    shapes: [u4c-standard-120-metal]
+    images: [rocky-linux-10-optimized-gcp-oot-gve]
+    suites: [u4c]
 
 # Rules apply to matrix configs only; shapevalidation families below are self-contained (zones/cpus per family) and only quarantine applies to them.
 rules:

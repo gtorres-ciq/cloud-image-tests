@@ -49,6 +49,9 @@ func TestGoldenParity(t *testing.T) {
 	if got := cfg.Budgets.Regions["us-south1"]["CPUS"]; got != 1152 {
 		t.Errorf("us-south1 CPUS budget = %d, want 1152 so it does not constrain U4S_CPUS", got)
 	}
+	if got := cfg.Budgets.Regions["us-south1"]["U4C_CPUS"]; got != 480 {
+		t.Errorf("us-south1 U4C_CPUS budget = %d, want 480", got)
+	}
 
 	for cfgName, golden := range map[string]string{
 		"x86": "cells-x86.txt", "arm": "cells-arm.txt", "arm-metal": "cells-arm-metal.txt",
@@ -98,10 +101,36 @@ func TestGoldenParity(t *testing.T) {
 	if u4sZones["us-south1-d"] != 12 || u4sZones["us-south1-e"] != 12 {
 		t.Errorf("u4s zone coverage = %v, want 12 jobs in each us-south1 zone", u4sZones)
 	}
+	if n := len(cellsFor(jobs, "u4c")); n != 2 {
+		t.Errorf("u4c cells = %d, want 2 (1 image x 1 suite x 2 zones)", n)
+	}
+	u4cZones := map[string]int{}
+	for _, j := range jobs {
+		if j.Config != "u4c" {
+			continue
+		}
+		if j.BaseImage != "rocky-linux-10-optimized-gcp-oot-gve" || j.Shape != "u4c-standard-120-metal" || j.Suite != "u4c" {
+			t.Errorf("unexpected u4c cell: %+v", j)
+		}
+		if j.MaxParallel != 1 || j.BudgetKey != "U4C_CPUS" || j.CPUCost != 120 {
+			t.Errorf("u4c cell %q has unsafe quota controls: MaxParallel=%d BudgetKey=%q CPUCost=%d", j.ID, j.MaxParallel, j.BudgetKey, j.CPUCost)
+		}
+		if j.Networks != 2 || j.Subnets != 3 {
+			t.Errorf("u4c cell %q resource costs = %d networks/%d subnets, want 2/3", j.ID, j.Networks, j.Subnets)
+		}
+		if len(j.Zones) != 1 {
+			t.Errorf("u4c cell %q must target exactly one zone, got %v", j.ID, j.Zones)
+			continue
+		}
+		u4cZones[j.Zones[0]]++
+	}
+	if u4cZones["us-south1-d"] != 1 || u4cZones["us-south1-e"] != 1 {
+		t.Errorf("u4c zone coverage = %v, want one job in each us-south1 zone", u4cZones)
+	}
 	if n := len(cellsFor(jobs, "shapevalidation")); n != 10 {
 		t.Errorf("shapevalidation jobs = %d, want 10", n)
 	}
-	if len(jobs) != 2179 {
-		t.Errorf("total jobs = %d, want 2179", len(jobs))
+	if len(jobs) != 2181 {
+		t.Errorf("total jobs = %d, want 2181", len(jobs))
 	}
 }

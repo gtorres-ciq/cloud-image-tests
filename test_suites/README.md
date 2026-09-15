@@ -140,6 +140,11 @@ Validate that creating a partition on an NVMe Local SSD generates the expected `
 #### TestLSSDGoogleNVMeIDNaming / TestBareMetalLSSDVendorExtensionNaming
 Validate `google_nvme_id` output directly against attached NVMe Local SSD devices (`-d` on VM instances where controller serials start with `nvme_card`, and `-e -d` on Bare Metal instances reading the NVMe Identify Namespace vendor extension).
 
+### Test suite: u4c
+
+#### TestGVNICsVisible
+Validate that all three U4C gVNICs advertised by the metadata server are visible to the Linux kernel and bound to the `gve` driver.
+
 ### Test suite: imageboot
 
 #### TestGuestBoot
