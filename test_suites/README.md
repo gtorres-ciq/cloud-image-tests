@@ -128,6 +128,11 @@ reattached, and the file can still be read.
 #### TestMount
 Validate that mounting and un-mounting a local ssd works, and files written are not lost when unmounted.
 
+### Test suite: u4c
+
+#### TestGVNICsVisible
+Validate that all three U4C gVNICs advertised by the metadata server are visible to the Linux kernel and bound to the `gve` driver.
+
 ### Test suite: imageboot
 
 #### TestGuestBoot
