@@ -70,6 +70,7 @@ import (
 	"github.com/GoogleCloudPlatform/cloud-image-tests/test_suites/ssh"
 	"github.com/GoogleCloudPlatform/cloud-image-tests/test_suites/storageperf"
 	"github.com/GoogleCloudPlatform/cloud-image-tests/test_suites/suspendresume"
+	"github.com/GoogleCloudPlatform/cloud-image-tests/test_suites/u4c"
 	"github.com/GoogleCloudPlatform/cloud-image-tests/test_suites/vmspec"
 	"github.com/GoogleCloudPlatform/cloud-image-tests/test_suites/windowscontainers"
 	"github.com/GoogleCloudPlatform/cloud-image-tests/test_suites/winrm"
@@ -395,6 +396,10 @@ func main() {
 		{
 			lssd.Name,
 			lssd.TestSetup,
+		},
+		{
+			u4c.Name,
+			u4c.TestSetup,
 		},
 		{
 			lvmvalidation.Name,
