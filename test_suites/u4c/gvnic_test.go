@@ -22,6 +22,7 @@ import (
 
 	"github.com/GoogleCloudPlatform/cloud-image-tests/utils"
 	"github.com/GoogleCloudPlatform/cloud-image-tests/utils/networkutils"
+	"github.com/GoogleCloudPlatform/cloud-image-tests/utils/ootgve"
 )
 
 type nicResolver func(mac string) (name, driver string, err error)
@@ -79,6 +80,22 @@ func TestGVNICsVisible(t *testing.T) {
 		return name, driver, err
 	}
 	if err := validateGVNICBindings(interfaces, resolve); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOOTGVEDNFExcludes(t *testing.T) {
+	utils.LinuxOnly(t)
+
+	if err := ootgve.CheckDNFKernelExcludes("/etc/dnf/dnf.conf"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOOTGVEModule(t *testing.T) {
+	utils.LinuxOnly(t)
+
+	if err := ootgve.CheckModule(utils.Context(t)); err != nil {
 		t.Fatal(err)
 	}
 }
