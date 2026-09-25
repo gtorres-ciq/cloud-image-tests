@@ -63,7 +63,7 @@ shapes:
   u4s-standard-4:        {arch: x86, cpus: 4, family: U4S_CPUS, zone_set: u4s, max_parallel: 1}
   # U4C quota is zonal. The dedicated smoke suite creates one VM, and
   # max_parallel keeps bare-metal provisioning serialized across both zones.
-  u4c-standard-120-metal: {arch: x86, cpus: 120, family: U4C_CPUS, zone_set: u4c, metal: true, max_parallel: 1}
+  u4c-highcpu-120-lssd-metal: {arch: x86, cpus: 120, family: U4C_CPUS, zone_set: u4c, metal: true, max_parallel: 1}
 
 # est = median wall-clock; timeout ≈ max(15m, ~3×median).
 suites:
@@ -136,7 +136,7 @@ matrix:
     suites: *allsuites
   - name: u4c
     each_zone: true
-    shapes: [u4c-standard-120-metal]
+    shapes: [u4c-highcpu-120-lssd-metal]
     images: [rocky-linux-10-optimized-gcp-oot-gve]
     suites: [u4c]
 
@@ -148,7 +148,7 @@ rules:
   - suite_only_on: {suites: [cvm],    shapes: ["n2d-standard*", "c3-standard*"]}
   - suite_only_on: {suites: [vmspec], shapes: ["n1-standard*", "n2-standard*", "n2d-standard*"]}
   # highcpu keep-list (run_tests.sh:338-350)
-  - keep_only: {shapes: ["*-highcpu-*"], suites: [network, ssh, loadbalancer, metadata, imageboot]}
+  - keep_only: {shapes: ["*-highcpu-*"], suites: [network, ssh, loadbalancer, metadata, imageboot, u4c]}
   # c3 metal drops (run_tests.sh:264-284): disk/vmspec already gone via suite_only_on;
   # cvm/lssd's "c3-standard*" glob also matches this metal shape, so drop them here too
   - drop: {shapes: [c3-standard-192-metal], suites: [cvm, lssd, livemigrate, suspendresume, imageboot, network]}

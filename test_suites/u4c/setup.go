@@ -143,6 +143,6 @@ func TestSetup(t *imagetest.TestWorkflow) error {
 	if err != nil {
 		return err
 	}
-	vm.RunTests("TestGVNICsVisible|TestOOTGVEDNFExcludes|TestOOTGVEModule")
+	vm.RunTests("TestGVNICsVisible|TestOOTGVEDNFExcludes|TestOOTGVEModule|TestLocalSSDVisible")
 	return nil
 }
