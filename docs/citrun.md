@@ -214,13 +214,14 @@ coverage. `citrun` then creates one independently reported job per zone,
 pins each job to that zone, and appends the zone to its job ID.
 
 **Any of these changes will change `ExpandJobs`' output — and
-`cmd/citrun/golden_test.go`'s `TestGoldenParity` exists specifically to
-catch that.** It checks the expanded matrix against golden cell lists in
-`tools/testdata/cells-*.txt` plus hardcoded job totals drawn from the current
-matrix. After a deliberate matrix
-change, regenerate the golden files (`tools/cell-parity.sh`, per the Phase 0
-plan) and update the hardcoded counts in the test — a failure here is the
-test doing its job, not a bug.
+`cmd/citrun/invariants_test.go`'s `TestMatrixInvariants` exists specifically to
+catch that.** It asserts the expanded matrix's job totals and safety controls
+(U4 quota serialization, single-zone pinning, budget relationships, suite
+gating) against the real `citrun.yaml`. After a deliberate matrix change,
+update the hardcoded counts and expectations in that test — a failure there is
+the test doing its job, not a bug. (The former bash-harness parity check and
+its `tools/cell-parity.sh` / `tools/testdata/cells-*.txt` goldens were removed
+once the citrun migration was completed.)
 
 ## Known v1 limitations
 
