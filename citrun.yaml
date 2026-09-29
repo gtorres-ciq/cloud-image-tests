@@ -2,7 +2,7 @@
 project: ciq-test-servers
 image_prefix: projects/gce-ciq-images/global/images/family
 docker_image: cloud-image-tests
-container_cap: 80
+container_cap: 120
 safety_factor: 0.8
 
 budgets:
