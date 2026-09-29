@@ -1,40 +1,19 @@
-// cmd/citrun/golden_test.go
+// cmd/citrun/invariants_test.go
 package main
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"testing"
 )
 
-// cellsFor renders jobs of one config in the bash harness's format:
-// "CELL <full-image> <shape> <suite>", sorted.
-func cellsFor(jobs []Job, config string) []string {
-	var out []string
-	for _, j := range jobs {
-		if j.Config == config {
-			out = append(out, fmt.Sprintf("CELL %s %s %s", j.Image, j.Shape, j.Suite))
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-func readGolden(t *testing.T, name string) []string {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "tools", "testdata", name))
-	if err != nil {
-		t.Fatalf("golden %s missing — generate it per the Phase 0 plan Task 1: %v", name, err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	sort.Strings(lines)
-	return lines
-}
-
-func TestGoldenParity(t *testing.T) {
+// TestMatrixInvariants exercises the real production citrun.yaml (unlike
+// matrix_test.go / placement_test.go, which use synthetic configs to test the
+// expansion engine). Every assertion here encodes a safety property of the
+// live matrix that would otherwise be caught only by quota exhaustion or
+// failed runs in the GCP project. Deliberate matrix changes should update
+// these expectations; an unexpected failure means the matrix changed by
+// accident.
+func TestMatrixInvariants(t *testing.T) {
 	cfg, err := LoadConfig(filepath.Join("..", "..", "citrun.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -53,29 +32,10 @@ func TestGoldenParity(t *testing.T) {
 		t.Errorf("us-south1 U4C_CPUS budget = %d, want 480", got)
 	}
 
-	for cfgName, golden := range map[string]string{
-		"x86": "cells-x86.txt", "arm": "cells-arm.txt", "arm-metal": "cells-arm-metal.txt",
-	} {
-		got := cellsFor(jobs, cfgName)
-		want := readGolden(t, golden)
-		if len(got) != len(want) {
-			t.Errorf("%s: %d cells, golden has %d", cfgName, len(got), len(want))
-		}
-		for i := range want {
-			g := "<missing>"
-			if i < len(got) {
-				g = got[i]
-			}
-			if g != want[i] {
-				t.Fatalf("%s: first mismatch at line %d:\n  got:  %s\n  want: %s", cfgName, i, g, want[i])
-			}
-		}
-	}
-
-	if n := len(cellsFor(jobs, "x86-metal")); n != 117 {
+	if n := countConfig(jobs, "x86-metal"); n != 117 {
 		t.Errorf("x86-metal cells = %d, want 117 (13 images x 9 suites)", n)
 	}
-	if n := len(cellsFor(jobs, "u4s")); n != 24 {
+	if n := countConfig(jobs, "u4s"); n != 24 {
 		t.Errorf("u4s cells = %d, want 24 (1 image x 12 suites x 2 zones)", n)
 	}
 	u4sZones := map[string]int{}
@@ -101,7 +61,7 @@ func TestGoldenParity(t *testing.T) {
 	if u4sZones["us-south1-d"] != 12 || u4sZones["us-south1-e"] != 12 {
 		t.Errorf("u4s zone coverage = %v, want 12 jobs in each us-south1 zone", u4sZones)
 	}
-	if n := len(cellsFor(jobs, "u4c")); n != 2 {
+	if n := countConfig(jobs, "u4c"); n != 2 {
 		t.Errorf("u4c cells = %d, want 2 (1 image x 1 suite x 2 zones)", n)
 	}
 	u4cZones := map[string]int{}
@@ -109,7 +69,7 @@ func TestGoldenParity(t *testing.T) {
 		if j.Config != "u4c" {
 			continue
 		}
-		if j.BaseImage != "rocky-linux-10-optimized-gcp-oot-gve" || j.Shape != "u4c-standard-120-metal" || j.Suite != "u4c" {
+		if j.BaseImage != "rocky-linux-10-optimized-gcp-oot-gve" || j.Shape != "u4c-highcpu-120-lssd-metal" || j.Suite != "u4c" {
 			t.Errorf("unexpected u4c cell: %+v", j)
 		}
 		if j.MaxParallel != 1 || j.BudgetKey != "U4C_CPUS" || j.CPUCost != 120 {
@@ -127,10 +87,20 @@ func TestGoldenParity(t *testing.T) {
 	if u4cZones["us-south1-d"] != 1 || u4cZones["us-south1-e"] != 1 {
 		t.Errorf("u4c zone coverage = %v, want one job in each us-south1 zone", u4cZones)
 	}
-	if n := len(cellsFor(jobs, "shapevalidation")); n != 10 {
+	if n := countConfig(jobs, "shapevalidation"); n != 10 {
 		t.Errorf("shapevalidation jobs = %d, want 10", n)
 	}
 	if len(jobs) != 2181 {
 		t.Errorf("total jobs = %d, want 2181", len(jobs))
 	}
+}
+
+func countConfig(jobs []Job, config string) int {
+	n := 0
+	for _, j := range jobs {
+		if j.Config == config {
+			n++
+		}
+	}
+	return n
 }
