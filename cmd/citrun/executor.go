@@ -67,10 +67,15 @@ func buildDockerArgs(d *DockerExecutor, job Job, zone, jobDir string) []string {
 	return args
 }
 
-// Same codes the manager's own retry matches (testworkflow.go:1443).
+// Same codes the manager's own retry matches (testworkflow.go:1564-1566),
+// plus GCE API rate limiting ("Rate exceeded", "Rate Limit Exceeded", gRPC
+// ResourceExhausted, HTTP 429). Without this, a rate-limited run classifies
+// as a 2-strike error instead of a 4-strike quota hit with region cooldown.
+// Bare "429" is deliberately not matched: junit duration fields like
+// time="1.429" would false-positive and mask real failures.
 var (
 	stockoutRe = regexp.MustCompile(`ZONE_RESOURCE_POOL_EXHAUSTED|INSUFFICIENT_CAPACITY|RESOURCE_POOL_EXHAUSTED`)
-	quotaRe    = regexp.MustCompile(`QUOTA_EXCEEDED`)
+	quotaRe    = regexp.MustCompile(`(?i)QUOTA_EXCEEDED|RATE.?EXCEEDED|RATE.?LIMIT|HTTP.?429|RESOURCE_EXHAUSTED`)
 )
 
 func firstMatch(b []byte, re *regexp.Regexp) string {
