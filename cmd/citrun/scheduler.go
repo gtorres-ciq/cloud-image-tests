@@ -119,11 +119,33 @@ func (s *Scheduler) headroom(job Job, region string) int {
 	return h
 }
 
-func (s *Scheduler) pickZone(job Job) string {
+// avoidZone returns the zone of the last stockout/quota attempt for a
+// requeued job. Measured 2026-08→10 (runs/): retrying in the same zone after
+// a stockout passes ~1% of the time, while moving to a different zone passes
+// 82%. pickZone must never send a requeue back to the zone that just failed.
+func avoidZone(rec *JobRecord) string {
+	if len(rec.Attempts) == 0 {
+		return ""
+	}
+	last := rec.Attempts[len(rec.Attempts)-1]
+	switch last.Result {
+	case ClassStockout, ClassQuota:
+		return last.Zone
+	default:
+		return ""
+	}
+}
+
+func (s *Scheduler) pickZone(job Job, avoidZone string) string {
 	now := s.clock.Now()
 	regions := map[string][]string{}
 	var order []string
 	for _, z := range job.Zones {
+		// Single-zone jobs (each_zone matrices, pinned zones) have nowhere
+		// else to go; skipping their only zone would deadlock them.
+		if z == avoidZone && len(job.Zones) > 1 {
+			continue
+		}
 		r := zoneRegion(z)
 		if len(regions[r]) == 0 {
 			order = append(order, r)
@@ -211,7 +233,7 @@ func (s *Scheduler) admit(admitCtx context.Context) {
 		if s.usedNets+j.Networks > s.cfg.Budgets.Networks || s.usedSubnets+j.Subnets > s.cfg.Budgets.Subnetworks {
 			continue
 		}
-		zone := s.pickZone(j)
+		zone := s.pickZone(j, avoidZone(rec))
 		if zone == "" {
 			continue
 		}

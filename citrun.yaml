@@ -2,61 +2,111 @@
 project: ciq-test-servers
 image_prefix: projects/gce-ciq-images/global/images/family
 docker_image: cloud-image-tests
-container_cap: 120
-safety_factor: 0.8
+container_cap: 150
+safety_factor: 0.9
 
 budgets:
   networks: 90
   subnetworks: 275
+  # All quotas below verified 2026-10-14:
+  # - CPUS/N2_CPUS/N2D_CPUS/E2_CPUS/C2/C2D/C3_CPUS/T2A_CPUS/T2D_CPUS via
+  #   `gcloud compute regions describe <region> --project ciq-test-servers`.
+  # - C4/C4A/C4D/N4/C3D/Z4D/U4S/U4C family quotas via the Cloud Quotas API
+  #   (quotaInfos/CPUS-PER-VM-FAMILY-per-project-{region,zone}); these are NOT
+  #   exposed by regions describe or validateOnly inserts.
+  #   C4/C4A/C4D/N4/C3D are 300/300/500/1500-3000/500 in every non-us-central1
+  #   region EXCEPT europe-west4, where the C4A quota was raised to 960 on
+  #   2026-10-14 — big enough for every c4a-highmem-96-metal suite, so no
+  #   arm-metal jobs need us-central1 anymore (zone_set metal-c4a-big).
   regions:
-    europe-west1:    {CPUS: 3000, C3_CPUS: 1920, N2_CPUS: 3000, N2D_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128}
-    us-central1:     {CPUS: 3000, C3_CPUS: 1920, N2_CPUS: 3000, N2D_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128, C4A_CPUS: 1760}
-    # Unmeasured regions: conservative CPUS seed. Raise after measuring
-    # (gcloud compute regions describe <region> --project ciq-test-servers).
-    europe-west3:    {CPUS: 1000, N2_CPUS: 1000, T2A_CPUS: 300}
-    europe-west4:    {CPUS: 1000, N2_CPUS: 1000, T2A_CPUS: 300}
-    asia-southeast1: {CPUS: 1000, N2_CPUS: 1000, C3_CPUS: 500}
-    asia-northeast1: {CPUS: 1000, N2_CPUS: 1000, C3_CPUS: 500}
-    us-east1:        {CPUS: 1000}
-    us-east4:        {CPUS: 1000, N2_CPUS: 1000}
-    us-west1:        {CPUS: 1000}
-    us-east5:        {CPUS: 1000, C4A_CPUS: 300}
-    # U4 quotas are zonal. Keep U4S serialized until the scheduler supports
-    # zonal budgets, and use one zone's measured allocation as a safe cap.
+    europe-west1:    {CPUS: 3000, C3_CPUS: 1920, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128}
+    # C4A quota increase in europe-west4 to 960 verified 2026-10-14 via the
+    # Cloud Quotas API (usable 864 covers the 768-CPU metadata suite); with it
+    # no zone_set references us-central1 anymore. Kept here for reference only
+    # (49% stockout+quota rate over May–Oct 2026; see
+    # gce-capacity-transient-failure-report.md).
+    us-central1:     {CPUS: 3000, C3_CPUS: 1920, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 1760, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128}
+    europe-west3:    {CPUS: 3000, N2_CPUS: 1500, N2D_CPUS: 1500, E2_CPUS: 600, C3_CPUS: 300, T2A_CPUS: 300, T2D_CPUS: 128, C4A_CPUS: 300}
+    europe-west4:    {CPUS: 3000, C3_CPUS: 300, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 960, C4D_CPUS: 500, N2_CPUS: 1500, N2D_CPUS: 3000, N4_CPUS: 1500, E2_CPUS: 600, T2A_CPUS: 300, T2D_CPUS: 128}
+    asia-southeast1: {CPUS: 3000, C3_CPUS: 300, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, C4D_CPUS: 500, N2_CPUS: 1500, N2D_CPUS: 3000, N4_CPUS: 1500, E2_CPUS: 600, T2A_CPUS: 300, T2D_CPUS: 128}
+    us-east1:        {CPUS: 3000, C3_CPUS: 300, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, E2_CPUS: 600, T2A_CPUS: 300}
+    us-east4:        {CPUS: 3000, C3_CPUS: 1920, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, T2A_CPUS: 300}
+    us-west1:        {CPUS: 1500, C3_CPUS: 1920, N4_CPUS: 1500}
+    # us-east5 CPUS measured 2026-10-06 via regions describe. Z4D_CPUS is the
+    # per-VM-family quota (Cloud Quotas API); Z4D quota exists only in us-east5.
+    us-east5:        {CPUS: 750, C4A_CPUS: 300, Z4D_CPUS: 384}
+    # U4 quotas are zonal (CPUS-PER-VM-FAMILY-per-project-zone). Keep U4S
+    # serialized until the scheduler supports zonal budgets, and use one
+    # zone's measured allocation as a safe cap.
     us-south1:       {CPUS: 1152, U4S_CPUS: 1152, U4C_CPUS: 480}
 
 zone_sets:
-  # `gcloud compute machine-types list --project=ciq-test-servers --filter='name=c4a-highmem-96-metal' --format='table(name,zone.basename())' --sort-by=zone`
-  default:      [europe-west1-b, europe-west1-c, europe-west1-d, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c, us-central1-c]
-  t2a:          [us-central1-a, us-central1-b, us-central1-f, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-b, asia-southeast1-c]
-  n4d:          [us-central1-a, us-central1-b, us-central1-c, us-east1-b, us-east1-d, europe-west1-c, europe-west4-a, europe-west4-b]
-  n4a:          [us-central1-b, us-central1-a, us-east1-b, us-east4-a, us-west1-a]
-  # default minus europe-west1-* / europe-west4-b / us-central1-c (never enough c4d)
-  c4d:          [europe-west4-a, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c]
-  # default minus us-central1 (c4 hotattach known issue)
-  c4-hotattach: [europe-west1-b, europe-west1-c, europe-west1-d, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c]
-  metal-c3:     [europe-west1-b, us-central1-a, us-east4-a, us-west1-a, asia-southeast1-a]
-  # metal-c4a:    [us-central1-b, us-central1-c, us-east4-c, us-east5-b, asia-northeast1-a, europe-west3-a, europe-west4-b]
-  metal-c4a:    [us-central1-a, us-central1-b, us-central1-c]
+  # Zone availability verified 2026-10-14 via
+  # `gcloud compute machine-types list --project=ciq-test-servers --format='value(name,zone.basename())'`.
+  # us-central1 removed everywhere: it accounted for 49% stockout+quota rate
+  # (us-central1-c alone ~493 stockout attempts) across May–Oct 2026, while
+  # europe-west1/europe-west4/asia-southeast1 ran at 2–6%.
+  # default (was: + us-central1-c): 12 zones across europe-west1/4, asia-southeast1, us-east1
+  default:      [europe-west1-b, europe-west1-c, europe-west1-d, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c, us-east1-b, us-east1-c, us-east1-d]
+  # t2a only exists in us-central1-a/b/f, europe-west4-a/b/c, asia-southeast1-b/c;
+  # asia-southeast1-b/c ran 112/112 clean (us-central1-a/b had 190+ n4a stockouts).
+  t2a:          [asia-southeast1-b, asia-southeast1-c, europe-west4-a, europe-west4-b, europe-west4-c]
+  # n4d verified in these zones; us-central1-a/b/c and us-east1-b/d dropped
+  # (n4d stockout hotspots: us-central1-c 60, us-central1-b 40, us-east1-b 37,
+  # us-east1-d 30 in the archive era).
+  n4d:          [europe-west1-b, europe-west1-c, europe-west1-d, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c]
+  # n4a verified in these zones; us-central1-a/b dropped (190 stockout attempts
+  # in us-central1-b alone). us-east1-b ran 114/114 clean on n4a.
+  n4a:          [us-east1-b, us-east1-c, us-east1-d, us-west1-a, europe-west1-b, europe-west1-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c]
+  # c4d never has enough quota in europe-west1-* / us-central1-c (measured
+  # historically); c4d ran 0 stockouts in 254 attempts on this set + europe-west4-b.
+  c4d:          [europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c]
+  # c4-hotattach used to exclude us-central1 (c4 hotattach known issue,
+  # run_tests.sh:360-370); with us-central1 gone it is identical to default.
+  # Kept as a named set for the rule below.
+  c4-hotattach: [europe-west1-b, europe-west1-c, europe-west1-d, europe-west4-a, europe-west4-b, europe-west4-c, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c, us-east1-b, us-east1-c, us-east1-d]
+  # c3-standard-192-metal availability: us-central1-a, europe-west1-b/c/d,
+  # us-west1-a/b, us-east1-b/c/d, asia-northeast1-b, asia-southeast1-a/c,
+  # us-east4-a/c, europe-west4-c, us-east5-a/b, us-south1-b, me-central1-a/c.
+  # us-central1-a (34 stockouts), us-west1-a (34), us-east4-a (30) dropped.
+  metal-c3:     [europe-west1-b, europe-west1-c, europe-west1-d, us-east1-b, asia-southeast1-a, asia-southeast1-c]
+  # c4a-highmem-96-metal availability outside us-central1: europe-west3-a/b/c,
+  # europe-west4-a/b/c, asia-northeast1-a/b, us-east4-c, us-east5-b, us-west4-a/c.
+  # C4A quota is 300 in europe-west3/us-east4/us-east5, so only 1-VM suites
+  # (96 CPU) run in this set; the multi-VM suites go through the
+  # metal-c4a-big zone_set rule below (europe-west4 raised to 960).
+  metal-c4a:    [europe-west4-a, europe-west4-b, europe-west4-c, europe-west3-a, europe-west3-b, us-east4-c, us-east5-b]
+  # europe-west4 is the only non-us-central1 region whose C4A quota (960,
+  # usable 864) fits the 6-8 VM c4a-highmem-96-metal suites. Quota verified
+  # 2026-10-14 via the Cloud Quotas API after a quota increase.
+  metal-c4a-big: [europe-west4-a, europe-west4-b, europe-west4-c]
   u4s:          [us-south1-d, us-south1-e]
   u4c:          [us-south1-d, us-south1-e]
-  sv-flex:      [us-central1-a, us-central1-b, us-central1-c, us-central1-f]
+  # sv-flex moved off us-central1 (shapevalidation stockouts: n2-highmem-128
+  # 90%, c3-highmem-176 92%, c4-highmem-192 58% in us-central1/us-east4-a).
+  # All sv shapes verified available in europe-west1-* and asia-southeast1-*.
+  sv-flex:      [europe-west1-b, europe-west1-c, europe-west1-d, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c]
+  # Z4D machine type is offered in us-central1/us-east4/us-east5, but the
+  # project only has Z4D quota in us-east5 (see budgets above).
+  z4d:          [us-east5-b, us-east5-c]
 
 shapes:
+  # family = the per-VM-family budget key charged alongside CPUS. Values
+  # verified 2026-10-14 via the Cloud Quotas API (CPUS-PER-VM-FAMILY).
   n1-standard-4:         {arch: x86, cpus: 4, family: CPUS,     zone_set: default}
   n2-standard-4:         {arch: x86, cpus: 4, family: N2_CPUS,  zone_set: default}
   c3-standard-4:         {arch: x86, cpus: 4, family: C3_CPUS,  zone_set: default}
-  c4-standard-4:         {arch: x86, cpus: 4, family: CPUS,     zone_set: default}
-  c3d-standard-4:        {arch: x86, cpus: 4, family: CPUS,     zone_set: default}
-  c4d-standard-4:        {arch: x86, cpus: 4, family: CPUS,     zone_set: c4d}
-  n4d-standard-2:        {arch: x86, cpus: 2, family: CPUS,     zone_set: n4d}
-  n4-highcpu-2:          {arch: x86, cpus: 2, family: CPUS,     zone_set: default}
+  c4-standard-4:         {arch: x86, cpus: 4, family: C4_CPUS,  zone_set: default}
+  c3d-standard-4:        {arch: x86, cpus: 4, family: C3D_CPUS, zone_set: default}
+  c4d-standard-4:        {arch: x86, cpus: 4, family: C4D_CPUS, zone_set: c4d}
+  n4d-standard-2:        {arch: x86, cpus: 2, family: N4_CPUS,  zone_set: n4d}
+  n4-highcpu-2:          {arch: x86, cpus: 2, family: N4_CPUS,  zone_set: default}
   c3-highcpu-4:          {arch: x86, cpus: 4, family: C3_CPUS,  zone_set: default}
-  c4-highcpu-4:          {arch: x86, cpus: 4, family: CPUS,     zone_set: default}
+  c4-highcpu-4:          {arch: x86, cpus: 4, family: C4_CPUS,  zone_set: default}
   n2-highcpu-2:          {arch: x86, cpus: 2, family: N2_CPUS,  zone_set: default}
   t2a-standard-2:        {arch: arm64, cpus: 2, family: T2A_CPUS, zone_set: t2a}
   c4a-standard-4:        {arch: arm64, cpus: 4, family: C4A_CPUS, zone_set: default}
-  n4a-standard-2:        {arch: arm64, cpus: 2, family: CPUS,     zone_set: n4a, max_parallel: 12}
+  n4a-standard-2:        {arch: arm64, cpus: 2, family: N4_CPUS,  zone_set: n4a, max_parallel: 12}
   c3-standard-192-metal: {arch: x86,   cpus: 192, family: C3_CPUS,  zone_set: metal-c3,  metal: true}
   c4a-highmem-96-metal:  {arch: arm64, cpus: 96,  family: C4A_CPUS, zone_set: metal-c4a, metal: true}
   # U4 quotas are per zone; serialize this shape until citrun models zonal budgets.
@@ -64,6 +114,7 @@ shapes:
   # U4C quota is zonal. The dedicated smoke suite creates one VM, and
   # max_parallel keeps bare-metal provisioning serialized across both zones.
   u4c-highcpu-120-lssd-metal: {arch: x86, cpus: 120, family: U4C_CPUS, zone_set: u4c, metal: true, max_parallel: 1}
+  z4d-highmem-16-standardlssd: {arch: x86, cpus: 16, family: Z4D_CPUS, zone_set: z4d}
 
 # est = median wall-clock; timeout ≈ max(15m, ~3×median).
 suites:
@@ -89,7 +140,7 @@ suites:
 
 matrix:
   - name: x86
-    shapes: [n1-standard-4, n2-standard-4, c3-standard-4, c4-standard-4, c3d-standard-4, c4d-standard-4, n4d-standard-2, n4-highcpu-2, c3-highcpu-4, c4-highcpu-4, n2-highcpu-2]
+    shapes: [n1-standard-4, n2-standard-4, c3-standard-4, c4-standard-4, c3d-standard-4, c4d-standard-4, n4d-standard-2, n4-highcpu-2, c3-highcpu-4, c4-highcpu-4, n2-highcpu-2, z4d-highmem-16-standardlssd]
     images: &x86images
       - rocky-linux-8
       - rocky-linux-9
@@ -155,10 +206,18 @@ rules:
   # c4a metal keep-list + no rocky-8 (run_tests.sh:244-263)
   - keep_only: {shapes: [c4a-highmem-96-metal], suites: [suspendresume, licensevalidation, loadbalancer, metadata, packagevalidation]}
   - drop: {shapes: [c4a-highmem-96-metal], images: ["rocky-linux-8*"]}
+  # C4A quota is 300 in europe-west3/us-east4/us-east5 (fits only 1-VM suites
+  # at 96 CPU); europe-west4 has 960. Splits the arm-metal matrix:
+  # loadbalancer/metadata/packagevalidation -> europe-west4, the 1-VM
+  # suspendresume/licensevalidation suites spread across europe/us-east4/us-east5.
+  - zone_set: {shapes: [c4a-highmem-96-metal], suites: [loadbalancer, metadata, packagevalidation], set: metal-c4a-big}
   # c4 hotattach avoids us-central1 (run_tests.sh:360-370)
   - zone_set: {shapes: ["c4-standard*"], suites: [hotattach], set: c4-hotattach}
   # U4 does not support simulated host maintenance events.
   - drop: {shapes: ["u4s-*"], suites: [livemigrate]}
+  # Z-series is TERMINATE-only (fixtures.go knownTerminateOnlyMachineRegexes),
+  # so the MIGRATE-based livemigrate suite cannot run on z4d.
+  - drop: {shapes: ["z4d-*"], suites: [livemigrate]}
   # Metal boots are slow; give every metal job more headroom
   - timeout: {shapes: ["*-metal"], value: 45m}
 
@@ -179,11 +238,11 @@ shapevalidation:
   families:
     - {name: E2,  shape: e2-standard-32,   cpus: 32,  family: E2_CPUS,  arch: x86, zone_set: sv-flex}
     - {name: T2D, shape: t2d-standard-60,  cpus: 60,  family: T2D_CPUS, arch: x86, zone_set: sv-flex}
-    - {name: N4,  shape: n4-highmem-80,    cpus: 80,  family: CPUS,     arch: x86, pinned_zone: us-east4-b}
+    - {name: N4,  shape: n4-highmem-80,    cpus: 80,  family: N4_CPUS,  arch: x86, pinned_zone: us-east4-b}
     - {name: N1,  shape: n1-highmem-96,    cpus: 96,  family: CPUS,     arch: x86, zone_set: sv-flex}
     - {name: N2,  shape: n2-highmem-128,   cpus: 128, family: N2_CPUS,  arch: x86, zone_set: sv-flex}
     - {name: C3,  shape: c3-highmem-176,   cpus: 176, family: C3_CPUS,  arch: x86, zone_set: sv-flex}
-    - {name: C4,  shape: c4-highmem-192,   cpus: 192, family: CPUS,     arch: x86, pinned_zone: us-east4-a}
+    - {name: C4,  shape: c4-highmem-192,   cpus: 192, family: C4_CPUS,  arch: x86, pinned_zone: us-east4-a}
     - {name: N2D, shape: n2d-standard-224, cpus: 224, family: N2D_CPUS, arch: x86, zone_set: sv-flex}
-    - {name: C3D, shape: c3d-highmem-360,  cpus: 360, family: CPUS,     arch: x86, pinned_zone: us-east4-c}
+    - {name: C3D, shape: c3d-highmem-360,  cpus: 360, family: C3D_CPUS, arch: x86, pinned_zone: us-east4-c}
     - {name: T2A, shape: t2a-standard-48,  cpus: 48,  family: T2A_CPUS, arch: arm64, pinned_zone: europe-west4-a}

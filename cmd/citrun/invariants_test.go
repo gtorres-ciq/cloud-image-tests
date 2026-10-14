@@ -90,8 +90,32 @@ func TestMatrixInvariants(t *testing.T) {
 	if n := countConfig(jobs, "shapevalidation"); n != 10 {
 		t.Errorf("shapevalidation jobs = %d, want 10", n)
 	}
-	if len(jobs) != 2181 {
-		t.Errorf("total jobs = %d, want 2181", len(jobs))
+	z4dCount := 0
+	for _, j := range jobs {
+		if j.Shape != "z4d-highmem-16-standardlssd" {
+			continue
+		}
+		z4dCount++
+		if j.Suite == "livemigrate" {
+			t.Errorf("z4d must not run unsupported livemigrate suite: %+v", j)
+		}
+		if j.BudgetKey != "Z4D_CPUS" || j.CPUCost != 16*cfg.Suites[j.Suite].VMs || j.Arch != "x86" {
+			t.Errorf("z4d cell %q has wrong shape controls: BudgetKey=%q CPUCost=%d Arch=%q", j.ID, j.BudgetKey, j.CPUCost, j.Arch)
+		}
+		for _, z := range j.Zones {
+			if z != "us-east5-b" && z != "us-east5-c" {
+				t.Errorf("z4d cell %q targets zone %s outside the us-east5 quota constraint", j.ID, z)
+			}
+		}
+	}
+	if z4dCount != 156 {
+		t.Errorf("z4d cells = %d, want 156 (13 images x 12 suites)", z4dCount)
+	}
+	if got := cfg.Budgets.Regions["us-east5"]["Z4D_CPUS"]; got != 384 {
+		t.Errorf("us-east5 Z4D_CPUS budget = %d, want 384", got)
+	}
+	if len(jobs) != 2337 {
+		t.Errorf("total jobs = %d, want 2337", len(jobs))
 	}
 }
 

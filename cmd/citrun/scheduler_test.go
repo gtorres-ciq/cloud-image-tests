@@ -341,8 +341,39 @@ func TestCooldownExpiresWithClock(t *testing.T) {
 	}
 }
 
-func TestStockoutAttemptCap(t *testing.T) {
-	jobs := []Job{job("j1", 16)}
+// TestStockoutRetryRezones: after a stockout in zone X, the retry must never
+// land back on X — even after the region cooldown has expired and the failed
+// zone is again a legal pick. Measured pass rates: same-zone retry ~1%,
+// different-zone retry 82%.
+func TestStockoutRetryRezones(t *testing.T) {
+	cfgYAML := strings.Replace(schedConfig,
+		"  r1only: [r1-a]",
+		"  r1only: [r1-a]\n  r1pair: [r1-a, r1-b]",
+		1)
+	j := job("j1", 16)
+	j.Zones = []string{"r1-a", "r1-b"}
+	s, ex, clk, st := schedFixture(t, cfgYAML, []Job{j})
+	ex.script["j1"] = []Result{{Classification: ClassStockout}, {Classification: ClassPass}}
+	errc := runSched(t, s)
+	// wait for the stockout attempt to complete, then expire the cooldown
+	waitFor(t, func() bool { return len(ex.callsSnapshot()) >= 1 })
+	clk.Advance(24 * time.Hour)
+	waitDone(t, errc)
+	if st.Jobs["j1"].Status != StatusPassed {
+		t.Fatalf("want passed: %+v", st.Jobs["j1"])
+	}
+	calls := ex.callsSnapshot()
+	if len(calls) != 2 {
+		t.Fatalf("calls = %v, want 2", calls)
+	}
+	first := strings.Split(calls[0], "@")[1]
+	second := strings.Split(calls[1], "@")[1]
+	if first == second {
+		t.Errorf("retry landed in stockout zone %s: %v", first, calls)
+	}
+}
+
+func TestStockoutAttemptCap(t *testing.T) {	jobs := []Job{job("j1", 16)}
 	s, ex, clk, st := schedFixture(t, schedConfig, jobs)
 	ex.script["j1"] = []Result{{Classification: ClassStockout}, {Classification: ClassStockout}, {Classification: ClassStockout}, {Classification: ClassStockout}}
 	errc := runSched(t, s)
