@@ -47,6 +47,14 @@ func buildDockerArgs(d *DockerExecutor, job Job, zone, jobDir string) []string {
 		"-v", jobDir + ":/curpath:z",
 		"-v", d.CredsDir + ":/creds:z",
 		"-e", "GOOGLE_APPLICATION_CREDENTIALS=/creds/application_default_credentials.json",
+		// Serial-log policy inside manager: CIT_SERIAL_ONCE=1 (default) does
+		// one serial capture+upload per VM at VM stop instead of daisy's
+		// every-3s full-log rewrite (measured ~83 GB/hour upload at 30
+		// containers). Propagate the host's setting so it's toggleable, and
+		// point ARTIFACTS at the jobDir so the serial log lands next to
+		// junit.xml on the host.
+		"-e", "CIT_SERIAL_ONCE=" + os.Getenv("CIT_SERIAL_ONCE"),
+		"-e", "ARTIFACTS=/curpath",
 		d.Image,
 		"--project", d.Project,
 		"--filter", "^(" + job.Suite + ")$",

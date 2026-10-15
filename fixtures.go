@@ -67,9 +67,8 @@ var (
 		regexp.MustCompile(`^ct\d.*`),
 		regexp.MustCompile(`^tpu\d.*`),
 
-		// Z series.
-		// Note that host maintenance policy for these families is nuanced.
-		// We use TERMINATE for simplicity.
+		// Z-series fallback. Known live-migratable shapes are handled first
+		// in MachineMaintenancePolicy; retain TERMINATE for other shapes.
 		regexp.MustCompile(`^z\d+[a-z]*-.*`),
 
 		// Special cases.
@@ -199,6 +198,24 @@ func DiskTypeNeeded(machineType string) string {
 func MachineMaintenancePolicy(machineType string) string {
 	if IsMetal(machineType) {
 		return "TERMINATE"
+	}
+
+	// Local SSD capacity determines live-migration support: up to 18,000
+	// GiB for Z3 and 42,000 GiB for Z4D. Match documented shapes explicitly
+	// rather than assuming that all sizes or future Z families can migrate.
+	// https://cloud.google.com/compute/docs/storage-optimized-machines
+	switch machineType {
+	case "z3-highmem-14-standardlssd", "z3-highmem-22-standardlssd",
+		"z3-highmem-44-standardlssd", "z3-highmem-88-standardlssd",
+		"z3-highmem-8-highlssd", "z3-highmem-16-highlssd",
+		"z3-highmem-22-highlssd", "z3-highmem-32-highlssd", "z3-highmem-44-highlssd",
+		"z4d-highmem-16-standardlssd", "z4d-highmem-32-standardlssd",
+		"z4d-highmem-48-standardlssd", "z4d-highmem-64-standardlssd",
+		"z4d-highmem-96-standardlssd", "z4d-highmem-192-standardlssd",
+		"z4d-highmem-8-highlssd", "z4d-highmem-16-highlssd",
+		"z4d-highmem-32-highlssd", "z4d-highmem-48-highlssd",
+		"z4d-highmem-64-highlssd", "z4d-highmem-96-highlssd":
+		return "MIGRATE"
 	}
 
 	for _, regex := range knownTerminateOnlyMachineRegexes {

@@ -23,6 +23,8 @@ import (
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"net/url"
+	"os"
 	"path"
 	"regexp"
 	"sort"
@@ -41,6 +43,106 @@ import (
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/iterator"
 )
+
+// serialOnceEnabled controls serial-log handling. When true (default), daisy's
+// per-VM serial streaming goroutine is disabled and each VM's serial port 1
+// output is fetched once at VM stop and uploaded to GCS once. This replaces
+// daisy's default behavior of re-uploading the entire accumulated serial log
+// to GCS every 3 seconds per VM, which saturates the orchestrator's uplink
+// (measured ~23 MB/s TX with ~30 concurrent containers). Set
+// CIT_SERIAL_ONCE=0 to restore daisy's always-streaming behavior.
+const serialOnceDefault = true
+
+func serialOnceEnabled() bool {
+	return os.Getenv("CIT_SERIAL_ONCE") != "0" && serialOnceDefault
+}
+
+// disableSerialStreaming configures a daisy instance for the serial-once
+// policy: daisy spawns a logSerialOutput goroutine per entry of
+// SerialPortsToLog (defaulting to port 1 when nil), rewriting the whole log
+// to GCS every 3 seconds. Setting a non-nil empty slice suppresses that
+// goroutine, and Resource.NoCleanup keeps the VM alive after wf.Run so
+// dumpSerialLogs can fetch the final serial output once. Returns the value
+// to assign to instance.SerialPortsToLog.
+func disableSerialStreaming(existing []int64) []int64 {
+	if !serialOnceEnabled() {
+		return existing // nil: daisy default-streams port 1
+	}
+	return []int64{}
+}
+
+// dumpSerialLogs fetches the final serial port 1 output of every VM the
+// workflow created and uploads it once to GCS under <GCSPath>/serial/, plus a
+// local copy next to the junit results, then deletes the VM. Requires
+// instances to have Resource.NoCleanup set (disableSerialStreaming callers do
+// this) so daisy's wf.Run cleanup leaves them alive until this runs. Never
+// fails the test: capture/upload errors are logged and the VM is still
+// cleaned up via cleanTestWorkflow.
+func (t *TestWorkflow) dumpSerialLogs(ctx context.Context, localPath string) {
+	if !serialOnceEnabled() {
+		return
+	}
+	if t.wf.ComputeClient == nil || t.wf.StorageClient == nil {
+		// wf.Run failed before clients were initialized; cleanTestWorkflow
+		// (leftover scan) is responsible for the VMs in that case.
+		log.Printf("serial-once: workflow clients unavailable, skipping serial capture")
+		return
+	}
+	for _, inst := range t.workflowInstances() {
+		name, zone := inst.Name, path.Base(inst.Zone)
+		if name == "" || zone == "" {
+			continue
+		}
+		obj := fmt.Sprintf("%s-serial-port1.log", name)
+		sp, err := t.wf.ComputeClient.GetSerialPortOutput(t.wf.Project, zone, name, 1, 0)
+		if err != nil {
+			log.Printf("serial-once: no serial output for VM %s: %v", name, err)
+		} else {
+			// Local copy alongside the job's junit results (ARTIFACTS is the
+			// jobDir bind mount when run under citrun).
+			if artifacts := os.Getenv("ARTIFACTS"); artifacts != "" {
+				if err := os.WriteFile(path.Join(artifacts, obj), []byte(sp.Contents), 0o644); err != nil {
+					log.Printf("serial-once: writing local %s: %v", obj, err)
+				}
+			}
+			// Single upload to GCS, mirroring daisy's naming so tooling that
+			// looks for *-serial-port1.log still finds it.
+			if t.GCSPath != "" {
+				if u, err := url.Parse(t.GCSPath); err != nil {
+					log.Printf("serial-once: parsing GCSPath %q: %v", t.GCSPath, err)
+				} else {
+					gcsObj := path.Join(strings.TrimPrefix(u.Path, "/"), "serial", obj)
+					wc := t.wf.StorageClient.Bucket(u.Host).Object(gcsObj).NewWriter(ctx)
+					if _, err := wc.Write([]byte(sp.Contents)); err != nil {
+						log.Printf("serial-once: uploading gs://%s/%s: %v", u.Host, gcsObj, err)
+					} else if err := wc.Close(); err != nil {
+						log.Printf("serial-once: closing gs://%s/%s: %v", u.Host, gcsObj, err)
+					} else {
+						log.Printf("serial-once: uploaded serial log for VM %s to gs://%s/%s", name, u.Host, gcsObj)
+					}
+				}
+			}
+		}
+		// Serial capture done; delete the VM now (daisy skipped it because
+		// Resource.NoCleanup is set). best-effort: cleanTestWorkflow's
+		// leftover scan catches it if this fails.
+		if err := t.wf.ComputeClient.DeleteInstance(t.wf.Project, zone, name); err != nil {
+			log.Printf("serial-once: deleting VM %s: %v (cleanerupper will retry)", name, err)
+		}
+	}
+}
+
+// workflowInstances returns every instance the workflow created, across the
+// regular and beta CreateInstances steps.
+func (t *TestWorkflow) workflowInstances() []*daisy.Instance {
+	var out []*daisy.Instance
+	for _, step := range t.wf.Steps {
+		if ci := step.CreateInstances; ci != nil {
+			out = append(out, ci.Instances...)
+		}
+	}
+	return out
+}
 
 var (
 	client *storage.Client
@@ -216,6 +318,8 @@ func (t *TestWorkflow) addNewVMStep(disks []*compute.Disk, instanceParams *daisy
 		instance = &daisy.Instance{}
 	}
 
+	instance.SerialPortsToLog = disableSerialStreaming(instance.SerialPortsToLog)
+	instance.NoCleanup = serialOnceEnabled()
 	instance.StartupScript = fmt.Sprintf("wrapper%s", suffix)
 	instance.Name = name
 	instance.Description = cleanerupper.CITDescription(instance.Description)
@@ -287,6 +391,8 @@ func (t *TestWorkflow) appendCreateVMStep(disks []*compute.Disk, instanceParams 
 		log.Printf("Setting onHostMaintenance to %s for VM %s (machine type %s)", policy, name, t.MachineType.Name)
 	}
 	instance.StartupScript = fmt.Sprintf("wrapper%s", suffix)
+	instance.SerialPortsToLog = disableSerialStreaming(instance.SerialPortsToLog)
+	instance.NoCleanup = serialOnceEnabled()
 	instance.Name = name
 	instance.Description = cleanerupper.CITDescription(instance.Description)
 	instance.Labels = cleanerupper.CITLabels(instance.Labels)
@@ -365,6 +471,8 @@ func (t *TestWorkflow) appendCreateVMStepBeta(disks []*compute.Disk, instance *d
 		log.Printf("Setting onHostMaintenance to %s for VM %s (machine type %s)", policy, name, t.MachineType.Name)
 	}
 	instance.StartupScript = fmt.Sprintf("wrapper%s", suffix)
+	instance.SerialPortsToLog = disableSerialStreaming(instance.SerialPortsToLog)
+	instance.NoCleanup = serialOnceEnabled()
 	instance.Name = name
 	instance.Description = cleanerupper.CITDescription(instance.Description)
 	instance.Labels = cleanerupper.CITLabels(instance.Labels)
@@ -1299,6 +1407,10 @@ func runTestWorkflow(ctx context.Context, metrics *testMetrics, test *TestWorkfl
 	test, start, err = runTestWorkflowWithRetries(ctx, test, metrics, gcsPrefix, localPath)
 	res.testWorkflow = test
 	if err != nil {
+		// Final capture on the error path too: the last wf.Run may have
+		// succeeded but results parsing failed, or the run failed for a
+		// non-retryable reason. VMs are still alive here.
+		test.dumpSerialLogs(ctx, localPath)
 		res.err = err
 		return res
 	}
@@ -1308,11 +1420,16 @@ func runTestWorkflow(ctx context.Context, metrics *testMetrics, test *TestWorkfl
 
 	results, err := getTestResults(ctx, test)
 	if err != nil {
+		test.dumpSerialLogs(ctx, localPath)
 		res.err = err
 		return res
 	}
 	res.results = results
 	res.workflowSuccess = true
+
+	// Success path: capture serial logs once, pass or fail, before the
+	// deferred cleanup deletes the VMs.
+	test.dumpSerialLogs(ctx, localPath)
 
 	return res
 }
@@ -1362,8 +1479,13 @@ func runTestWorkflowWithRetries(ctx context.Context, test *TestWorkflow, metrics
 			break // Success
 		}
 		if !isStockoutOrQuotaError(err) {
+			// Capture serial logs once before the VMs are deleted by the
+			// caller's cleanup pass.
+			test.dumpSerialLogs(ctx, localPath)
 			break // Non-stockout error, don't retry
 		}
+		// Stockout/quota: VMs get deleted by the retry cleanup below.
+		test.dumpSerialLogs(ctx, localPath)
 		log.Printf("stockout/quota error in test %s/%s (ID %s) in project: %s, zone: %s, error: %v\n", test.Name, test.Image.Name, test.wf.ID(), test.wf.Project, test.wf.Zone, err)
 	}
 	return test, start, err

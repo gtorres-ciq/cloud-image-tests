@@ -69,7 +69,7 @@ zone_sets:
   # us-west1-a/b, us-east1-b/c/d, asia-northeast1-b, asia-southeast1-a/c,
   # us-east4-a/c, europe-west4-c, us-east5-a/b, us-south1-b, me-central1-a/c.
   # us-central1-a (34 stockouts), us-west1-a (34), us-east4-a (30) dropped.
-  metal-c3:     [europe-west1-b, europe-west1-c, europe-west1-d, us-east1-b, asia-southeast1-a, asia-southeast1-c]
+  metal-c3:     [us-east4-c, us-west1-b, europe-west1-b, europe-west1-c, europe-west1-d, us-east1-b, asia-southeast1-a, asia-southeast1-c]
   # c4a-highmem-96-metal availability outside us-central1: europe-west3-a/b/c,
   # europe-west4-a/b/c, asia-northeast1-a/b, us-east4-c, us-east5-b, us-west4-a/c.
   # C4A quota is 300 in europe-west3/us-east4/us-east5, so only 1-VM suites

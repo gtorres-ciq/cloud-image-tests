@@ -1086,3 +1086,31 @@ func TestShouldRunTests(t *testing.T) {
 		}
 	}
 }
+
+func TestZSeriesMachineMaintenancePolicy(t *testing.T) {
+	cases := map[string]string{
+		"z3-highmem-14-standardlssd":         "MIGRATE",
+		"z3-highmem-88-standardlssd":         "MIGRATE",
+		"z3-highmem-176-standardlssd":        "TERMINATE",
+		"z3-highmem-8-highlssd":              "MIGRATE",
+		"z3-highmem-44-highlssd":             "MIGRATE",
+		"z3-highmem-88-highlssd":             "TERMINATE",
+		"z3-highmem-192-highlssd-metal":      "TERMINATE",
+		"z4d-highmem-16-standardlssd":        "MIGRATE",
+		"z4d-highmem-192-standardlssd":       "MIGRATE",
+		"z4d-highmem-384-standardlssd":       "TERMINATE",
+		"z4d-highmem-8-highlssd":             "MIGRATE",
+		"z4d-highmem-96-highlssd":            "MIGRATE",
+		"z4d-highmem-192-highlssd":           "TERMINATE",
+		"z4d-highmem-384-standardlssd-metal": "TERMINATE",
+		"z4m-highmem-192":                    "TERMINATE",
+		"z4d-highmem-16-unknown":             "TERMINATE",
+	}
+	for machineType, want := range cases {
+		t.Run(machineType, func(t *testing.T) {
+			if got := MachineMaintenancePolicy(machineType); got != want {
+				t.Errorf("MachineMaintenancePolicy(%q) = %q, want %q", machineType, got, want)
+			}
+		})
+	}
+}
