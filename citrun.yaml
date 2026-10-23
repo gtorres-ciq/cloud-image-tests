@@ -2,7 +2,7 @@
 project: ciq-test-servers
 image_prefix: projects/gce-ciq-images/global/images/family
 docker_image: cloud-image-tests
-container_cap: 150
+container_cap: 80
 safety_factor: 0.9
 
 budgets:
@@ -22,8 +22,8 @@ budgets:
     europe-west1:    {CPUS: 3000, C3_CPUS: 1920, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128}
     # C4A quota increase in europe-west4 to 960 verified 2026-10-14 via the
     # Cloud Quotas API (usable 864 covers the 768-CPU metadata suite); with it
-    # no zone_set references us-central1 anymore. Kept here for reference only
-    # (49% stockout+quota rate over May–Oct 2026; see
+    # arm-metal no longer needs us-central1. C3 metal may still use it
+    # despite its historical stockouts (49% stockout+quota rate; see
     # gce-capacity-transient-failure-report.md).
     us-central1:     {CPUS: 3000, C3_CPUS: 1920, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 1760, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128}
     europe-west3:    {CPUS: 3000, N2_CPUS: 1500, N2D_CPUS: 1500, E2_CPUS: 600, C3_CPUS: 300, T2A_CPUS: 300, T2D_CPUS: 128, C4A_CPUS: 300}
@@ -43,7 +43,7 @@ budgets:
 zone_sets:
   # Zone availability verified 2026-10-14 via
   # `gcloud compute machine-types list --project=ciq-test-servers --format='value(name,zone.basename())'`.
-  # us-central1 removed everywhere: it accounted for 49% stockout+quota rate
+  # us-central1 excluded except for the C3 metal fallback: 49% stockout+quota rate
   # (us-central1-c alone ~493 stockout attempts) across May–Oct 2026, while
   # europe-west1/europe-west4/asia-southeast1 ran at 2–6%.
   # default (was: + us-central1-c): 12 zones across europe-west1/4, asia-southeast1, us-east1
@@ -68,8 +68,11 @@ zone_sets:
   # c3-standard-192-metal availability: us-central1-a, europe-west1-b/c/d,
   # us-west1-a/b, us-east1-b/c/d, asia-northeast1-b, asia-southeast1-a/c,
   # us-east4-a/c, europe-west4-c, us-east5-a/b, us-south1-b, me-central1-a/c.
-  # us-central1-a (34 stockouts), us-west1-a (34), us-east4-a (30) dropped.
-  metal-c3:     [us-east4-c, us-west1-b, europe-west1-b, europe-west1-c, europe-west1-d, us-east1-b, asia-southeast1-a, asia-southeast1-c]
+  # us-central1-a restored as a fallback on 2026-10-15: type offered,
+  # C3_CPUS quota 1920 (76 used at verification). A live allocation probe
+  # returned STOCKOUT on 2026-10-15; retain it as a fallback for later retries.
+  # us-west1-a (34 stockouts) and us-east4-a (30) remain excluded.
+  metal-c3:     [us-east4-c, us-west1-b, europe-west1-b, europe-west1-c, europe-west1-d, us-east1-b, asia-southeast1-a, asia-southeast1-c, us-central1-a]
   # c4a-highmem-96-metal availability outside us-central1: europe-west3-a/b/c,
   # europe-west4-a/b/c, asia-northeast1-a/b, us-east4-c, us-east5-b, us-west4-a/c.
   # C4A quota is 300 in europe-west3/us-east4/us-east5, so only 1-VM suites
@@ -87,7 +90,10 @@ zone_sets:
   # All sv shapes verified available in europe-west1-* and asia-southeast1-*.
   sv-flex:      [europe-west1-b, europe-west1-c, europe-west1-d, asia-southeast1-a, asia-southeast1-b, asia-southeast1-c]
   # Z4D machine type is offered in us-central1/us-east4/us-east5, but the
-  # project only has Z4D quota in us-east5 (see budgets above).
+  # project only has Z4D CPU quota in us-east5 (384, verified 2026-10-15).
+  # Z4D LOCAL_SSD_TOTAL_GB_PER_VM_FAMILY is currently 0 in all regions.
+  # Request 84000 GB in us-east5 to cover the 24 VMs allowed by 384 CPUs
+  # (3500 GiB per VM); at least 28000 is needed for one 8-VM metadata job.
   z4d:          [us-east5-b, us-east5-c]
 
 shapes:
@@ -202,7 +208,7 @@ rules:
   - keep_only: {shapes: ["*-highcpu-*"], suites: [network, ssh, loadbalancer, metadata, imageboot, u4c]}
   # c3 metal drops (run_tests.sh:264-284): disk/vmspec already gone via suite_only_on;
   # cvm/lssd's "c3-standard*" glob also matches this metal shape, so drop them here too
-  - drop: {shapes: [c3-standard-192-metal], suites: [cvm, lssd, livemigrate, suspendresume, imageboot, network]}
+  - drop: {shapes: [c3-standard-192-metal], suites: [cvm, lssd, livemigrate, suspendresume, imageboot, network, packagevalidation]}
   # c4a metal keep-list + no rocky-8 (run_tests.sh:244-263)
   - keep_only: {shapes: [c4a-highmem-96-metal], suites: [suspendresume, licensevalidation, loadbalancer, metadata, packagevalidation]}
   - drop: {shapes: [c4a-highmem-96-metal], images: ["rocky-linux-8*"]}

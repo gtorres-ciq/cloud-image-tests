@@ -32,7 +32,7 @@ func TestPrepareResume(t *testing.T) {
 		exists: map[string]bool{"alive": true},
 		attach: map[string]Result{"alive": {Classification: ClassPass}},
 	}
-	requeued := prepareResume(st, chk, t.TempDir(), false)
+	requeued := prepareResume(&Scheduler{st: st, clock: realClock{}}, chk, t.TempDir(), false)
 
 	if st.Jobs["passed"].Status != StatusPassed {
 		t.Errorf("passed touched")
@@ -56,7 +56,7 @@ func TestPrepareResume(t *testing.T) {
 		t.Errorf("requeued = %d, want 3", requeued)
 	}
 
-	prepareResume(st, chk, t.TempDir(), true)
+	prepareResume(&Scheduler{st: st, clock: realClock{}}, chk, t.TempDir(), true)
 	if st.Jobs["real"].Status != StatusQueued {
 		t.Errorf("rerun-failed must requeue failed_real")
 	}

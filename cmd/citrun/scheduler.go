@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -22,7 +23,7 @@ func (realClock) Now() time.Time                         { return time.Now() }
 func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
 
 const (
-	capStockout     = 4
+	capStockout     = 4 // completed placement sweeps, not individual attempts
 	capQuota        = 4
 	capTimeout      = 2
 	capError        = 2
@@ -49,7 +50,7 @@ type Scheduler struct {
 	usedCPU         map[string]map[string]int // region -> budget key -> in use
 	usedNets        int
 	usedSubnets     int
-	cooldownHits    map[string]int       // "series|region"
+	cooldownHits    map[string]int       // "quota|budgetKey|region"
 	quotaPenalty    map[string]time.Time // "budgetKey|region" -> until
 	zoneRR          map[string]int
 	done            chan completion
@@ -59,6 +60,27 @@ type Scheduler struct {
 }
 
 func NewScheduler(cfg *Config, st *RunState, ex Executor, clk Clock, runDir string) *Scheduler {
+	// Old runs stored both stockouts and quota failures as series|region.
+	// Retain recent quota restrictions, but discard the broad stockout timers:
+	// the new per-job sweeps must be allowed to try every eligible zone.
+	for key, until := range st.Cooldowns {
+		if strings.HasPrefix(key, "quota|") || strings.HasPrefix(key, "stockout|") {
+			continue
+		}
+		if clk.Now().Before(until) {
+			for _, rec := range st.Jobs {
+				for _, a := range rec.Attempts {
+					if a.Result == ClassQuota && rec.Job.Series+"|"+zoneRegion(a.Zone) == key && a.End.After(clk.Now().Add(-64*time.Minute)) {
+						qkey := "quota|" + rec.Job.BudgetKey + "|" + zoneRegion(a.Zone)
+						if until.After(st.Cooldowns[qkey]) {
+							st.Cooldowns[qkey] = until
+						}
+					}
+				}
+			}
+		}
+		delete(st.Cooldowns, key)
+	}
 	return &Scheduler{
 		cfg: cfg, st: st, exec: ex, clock: clk, runDir: runDir,
 		runningPerShape: map[string]int{}, usedCPU: map[string]map[string]int{},
@@ -122,7 +144,7 @@ func (s *Scheduler) headroom(job Job, region string) int {
 // avoidZone returns the zone of the last stockout/quota attempt for a
 // requeued job. Measured 2026-08→10 (runs/): retrying in the same zone after
 // a stockout passes ~1% of the time, while moving to a different zone passes
-// 82%. pickZone must never send a requeue back to the zone that just failed.
+// 82%. Prefer another zone; the last zone is a fallback after a full sweep.
 func avoidZone(rec *JobRecord) string {
 	if len(rec.Attempts) == 0 {
 		return ""
@@ -136,40 +158,88 @@ func avoidZone(rec *JobRecord) string {
 	}
 }
 
-func (s *Scheduler) pickZone(job Job, avoidZone string) string {
+// fitsConfiguredBudget ignores transient occupancy and quota penalties. Busy
+// regions are still part of a sweep; regions that can never fit are not.
+func (s *Scheduler) fitsConfiguredBudget(job Job, region string) bool {
+	for _, key := range s.budgetKeys(job, region) {
+		if int(float64(s.cfg.Budgets.Regions[region][key])*s.cfg.SafetyFactor) < job.CPUCost {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Scheduler) pickZone(job Job, avoid string) string {
 	now := s.clock.Now()
-	regions := map[string][]string{}
-	var order []string
-	for _, z := range job.Zones {
-		// Single-zone jobs (each_zone matrices, pinned zones) have nowhere
-		// else to go; skipping their only zone would deadlock them.
-		if z == avoidZone && len(job.Zones) > 1 {
-			continue
+	rec := s.st.Jobs[job.ID]
+	key := "stockout|" + job.ID
+	if until, ok := s.st.Cooldowns[key]; ok {
+		if now.Before(until) {
+			return ""
 		}
-		r := zoneRegion(z)
-		if len(regions[r]) == 0 {
-			order = append(order, r)
-		}
-		regions[r] = append(regions[r], z)
-	}
-	sort.Strings(order)
-	best, bestFree := "", -1
-	for _, r := range order {
-		if until, ok := s.st.Cooldowns[job.Series+"|"+r]; ok && now.Before(until) {
-			continue
-		}
-		free := s.headroom(job, r)
-		if free >= job.CPUCost && free > bestFree {
-			best, bestFree = r, free
+		delete(s.st.Cooldowns, key)
+		if rec != nil {
+			rec.StockoutZones = nil
 		}
 	}
-	if best == "" {
-		return ""
+	// Prefer a different zone, but allow the last zone when it is the only
+	// feasible placement after an exhausted sweep (including budget constraints).
+	for _, skipLast := range []bool{true, false} {
+		regions := map[string][]string{}
+		var order []string
+		for _, z := range job.Zones {
+			if skipLast && z == avoid {
+				continue
+			}
+			if rec != nil && rec.StockoutZones[z] {
+				continue
+			}
+			r := zoneRegion(z)
+			if until := s.st.Cooldowns["quota|"+job.BudgetKey+"|"+r]; now.Before(until) {
+				continue
+			}
+			if len(regions[r]) == 0 {
+				order = append(order, r)
+			}
+			regions[r] = append(regions[r], z)
+		}
+		sort.Strings(order)
+		best, bestFree := "", -1
+		for _, r := range order {
+			free := s.headroom(job, r)
+			if free >= job.CPUCost && free > bestFree {
+				best, bestFree = r, free
+			}
+		}
+		if best != "" {
+			zones := regions[best]
+			z := zones[s.zoneRR[best]%len(zones)]
+			s.zoneRR[best]++
+			return z
+		}
 	}
-	zones := regions[best]
-	z := zones[s.zoneRR[best]%len(zones)]
-	s.zoneRR[best]++
-	return z
+	return ""
+}
+
+// A failure eliminates only this job's failed shape/zone placement. Complete
+// sweeps, not simultaneous failures of unrelated jobs, drive the backoff.
+func (s *Scheduler) recordStockout(rec *JobRecord, zone string) {
+	if rec.StockoutZones == nil {
+		rec.StockoutZones = map[string]bool{}
+	}
+	rec.StockoutZones[zone] = true
+	rec.Status = StatusQueued
+	for _, z := range rec.Job.Zones {
+		if s.fitsConfiguredBudget(rec.Job, zoneRegion(z)) && !rec.StockoutZones[z] {
+			return
+		}
+	}
+	rec.StockoutRounds++
+	if rec.StockoutRounds >= capStockout {
+		rec.Status = StatusFailedInfra
+		return
+	}
+	s.st.Cooldowns["stockout|"+rec.Job.ID] = s.clock.Now().Add(cooldownBase * time.Duration(1<<(rec.StockoutRounds-1)))
 }
 
 func (s *Scheduler) charge(job Job, region string, sign int) {
@@ -280,10 +350,9 @@ func (s *Scheduler) handleCompletion(c completion) {
 	case ClassFail:
 		rec.Status = StatusFailedReal
 	case ClassStockout:
-		s.bumpCooldown(rec.Job.Series, zoneRegion(c.zone))
-		rec.Status = requeueOr(ClassStockout, capStockout)
+		s.recordStockout(rec, c.zone)
 	case ClassQuota:
-		s.bumpCooldown(rec.Job.Series, zoneRegion(c.zone))
+		s.bumpCooldown("quota|"+rec.Job.BudgetKey, zoneRegion(c.zone))
 		s.quotaPenalty[rec.Job.BudgetKey+"|"+zoneRegion(c.zone)] = s.clock.Now().Add(quotaPenaltyDur)
 		rec.Status = requeueOr(ClassQuota, capQuota)
 	case ClassTimeout:
@@ -296,6 +365,9 @@ func (s *Scheduler) handleCompletion(c completion) {
 
 func (s *Scheduler) bumpCooldown(series, region string) {
 	key := series + "|" + region
+	if s.clock.Now().Before(s.st.Cooldowns[key]) {
+		return
+	}
 	s.cooldownHits[key]++
 	hits := s.cooldownHits[key]
 	if hits > 6 {

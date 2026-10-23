@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // refreshRunConfig validates all replacements before changing state. Call only
@@ -21,6 +22,10 @@ func refreshRunConfig(dir string, st *RunState, cfg *Config) (int, string, error
 		byID[j.ID] = j
 	}
 	next := *st
+	next.Cooldowns = make(map[string]time.Time, len(st.Cooldowns))
+	for key, until := range st.Cooldowns {
+		next.Cooldowns[key] = until
+	}
 	next.Jobs = make(map[string]*JobRecord, len(st.Jobs))
 	var candidates []Job
 	for id, rec := range st.Jobs {
@@ -38,6 +43,10 @@ func refreshRunConfig(dir string, st *RunState, cfg *Config) (int, string, error
 			copyRec.Job.Zones = append([]string(nil), j.Zones...)
 			copyRec.Job.CPUCost = j.CPUCost
 			copyRec.Job.BudgetKey = j.BudgetKey
+			// New placement or budget rules require a fresh sweep.
+			copyRec.StockoutZones = nil
+			copyRec.StockoutRounds = 0
+			delete(next.Cooldowns, "stockout|"+id)
 			// Validate what will actually run, not the expanded job's new
 			// quarantine or other fields that this operation does not refresh.
 			candidate := copyRec.Job

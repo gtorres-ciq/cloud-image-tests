@@ -95,3 +95,23 @@ func TestRefreshConfigRejectsWithoutWriting(t *testing.T) {
 		})
 	}
 }
+
+func TestRefreshConfigRestartsStockoutSweeps(t *testing.T) {
+	cfg, jobs := loadAndExpand(t, rulesConfig, JobFilter{})
+	st := NewRunState("test", time.Now(), jobs)
+	rec := st.Jobs[st.Order[0]]
+	rec.StockoutZones = map[string]bool{rec.Job.Zones[0]: true}
+	rec.StockoutRounds = 1
+	st.Cooldowns["stockout|"+rec.Job.ID] = time.Now().Add(time.Hour)
+	dir := t.TempDir()
+	if err := SaveState(dir, st); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := refreshRunConfig(dir, st, cfg); err != nil {
+		t.Fatal(err)
+	}
+	rec = st.Jobs[st.Order[0]]
+	if len(rec.StockoutZones) != 0 || rec.StockoutRounds != 0 || !st.Cooldowns["stockout|"+rec.Job.ID].IsZero() {
+		t.Fatal("config refresh retained stale stockout sweep")
+	}
+}

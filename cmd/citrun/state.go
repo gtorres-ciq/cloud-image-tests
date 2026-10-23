@@ -29,9 +29,11 @@ type Attempt struct {
 }
 
 type JobRecord struct {
-	Job      Job       `json:"job"`
-	Status   JobStatus `json:"status"`
-	Attempts []Attempt `json:"attempts,omitempty"`
+	Job            Job             `json:"job"`
+	Status         JobStatus       `json:"status"`
+	Attempts       []Attempt       `json:"attempts,omitempty"`
+	StockoutZones  map[string]bool `json:"stockout_zones,omitempty"`
+	StockoutRounds int             `json:"stockout_rounds,omitempty"`
 }
 
 type RunState struct {

@@ -260,7 +260,7 @@ func TestDeadJobCtxStopsRelaunchCycle(t *testing.T) {
 	errc := make(chan error, 1)
 	go func() { errc <- s.Run(admitCtx, jobCtx) }()
 	waitFor(t, func() bool { return len(ex.callsSnapshot()) >= 2 }) // both in flight
-	killJobs() // jobCtx dead, admitCtx alive — the previously-unbounded state
+	killJobs()                                                      // jobCtx dead, admitCtx alive — the previously-unbounded state
 	close(g1)
 	close(g2)
 	select {
@@ -285,6 +285,9 @@ func TestCooldownBackoffCapped(t *testing.T) {
 	s, _, clk, _ := schedFixture(t, schedConfig, []Job{job("j1", 16)})
 	for i := 0; i < 40; i++ {
 		s.bumpCooldown("c3", "r1")
+		if i < 39 {
+			clk.Advance(65 * time.Minute)
+		}
 	}
 	until := s.st.Cooldowns["c3|r1"]
 	d := until.Sub(clk.Now())
@@ -373,7 +376,9 @@ func TestStockoutRetryRezones(t *testing.T) {
 	}
 }
 
-func TestStockoutAttemptCap(t *testing.T) {	jobs := []Job{job("j1", 16)}
+func TestStockoutAttemptCap(t *testing.T) {
+	jobs := []Job{job("j1", 16)}
+	jobs[0].Zones = []string{"r1-a"}
 	s, ex, clk, st := schedFixture(t, schedConfig, jobs)
 	ex.script["j1"] = []Result{{Classification: ClassStockout}, {Classification: ClassStockout}, {Classification: ClassStockout}, {Classification: ClassStockout}}
 	errc := runSched(t, s)

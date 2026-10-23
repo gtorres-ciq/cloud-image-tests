@@ -113,11 +113,12 @@ go run ./cmd/citrun rerun-failed --refresh-config runs/20260908-141435/
 ```
 
 Stop the original runner first. This option (also available on `resume`)
-updates only `Zones`, `CPUCost`, and `BudgetKey` for queued/failed jobs,
+updates `Zones`, `CPUCost`, and `BudgetKey` for queued/failed jobs and
+resets their stockout sweeps and stockout cooldowns,
 matching IDs against the edited config's expanded matrix. Passed and
 quarantined jobs and all attempt history remain unchanged. Normal resume
 status transitions still apply afterward. It does not add new jobs or refresh
-other job fields. Without the flag, saved job definitions remain unchanged.
+other job definition fields. Without the flag, saved job definitions remain unchanged.
 
 The refresh rejects unmatched jobs, running jobs, and jobs that cannot fit
 any configured regional CPU budget. Validation uses configured budgets, not
@@ -153,6 +154,31 @@ the markdown to stdout — useful mid-run for a progress snapshot with more
 detail than `status`, or to regenerate the report after manually editing
 state. `-top N` controls how many of the slowest passed jobs are listed
 (default 15).
+
+## Stockout and quota retries
+
+A stockout removes only the failed zone from that job's current placement
+sweep. The scheduler immediately tries its other eligible zones, including
+zones in the same region. Other shapes and jobs remain schedulable. Zones
+that cannot fit the job's configured CPU budgets are excluded from the
+sweep; temporarily busy regions are not counted as failed.
+
+Only after every eligible zone has failed does the job wait: 2 minutes,
+then 4, then 8 between sweeps. Four exhausted sweeps mark it `failed_infra`.
+The failed zones, completed sweep count, and cooldown survive interruption.
+Explicitly resuming a `failed_infra` job starts fresh sweeps and preserves
+its attempt history. Cooldowns appear in status as `stockout|<job-id>`.
+
+Quota failures remain regional, keyed by `quota|<budget-key>|<region>`,
+with exponential cooldowns and the existing temporary budget penalty.
+Failures arriving while that cooldown is active do not extend it or
+increase its backoff. Quota failures retain their four-attempt limit.
+
+When resuming an older run, legacy series-wide stockout cooldowns are
+removed so eligible zones can be tried. Recent quota failures retain their
+regional restriction. No manual state edits are needed. Stop the old
+runner before resuming with the updated binary; use `--refresh-config` if
+you also changed the run's saved zone lists.
 
 ## Pausing a run
 

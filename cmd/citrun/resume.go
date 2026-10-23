@@ -12,7 +12,8 @@ type containerChecker interface {
 	Attach(job Job, jobDir string) Result
 }
 
-func prepareResume(st *RunState, chk containerChecker, runDir string, onlyFailed bool) int {
+func prepareResume(sched *Scheduler, chk containerChecker, runDir string, onlyFailed bool) int {
+	st := sched.st
 	requeued := 0
 	for _, id := range st.Order {
 		rec := st.Jobs[id]
@@ -26,12 +27,23 @@ func prepareResume(st *RunState, chk containerChecker, runDir string, onlyFailed
 					last := &rec.Attempts[n-1]
 					last.Result = res.Classification
 					last.Detail = res.Detail
+					last.End = sched.clock.Now()
+					last.WallSeconds = last.End.Sub(last.Start).Seconds()
 				}
 				switch res.Classification {
 				case ClassPass:
 					rec.Status = StatusPassed
 				case ClassFail:
 					rec.Status = StatusFailedReal
+				case ClassStockout:
+					if len(rec.Attempts) > 0 {
+						sched.recordStockout(rec, rec.Attempts[len(rec.Attempts)-1].Zone)
+					} else {
+						rec.Status = StatusQueued
+					}
+					if rec.Status == StatusQueued {
+						requeued++
+					}
 				default:
 					rec.Status = StatusQueued
 					requeued++
@@ -44,6 +56,9 @@ func prepareResume(st *RunState, chk containerChecker, runDir string, onlyFailed
 				requeued++
 			}
 		case StatusFailedInfra:
+			rec.StockoutZones = nil
+			rec.StockoutRounds = 0
+			delete(st.Cooldowns, "stockout|"+rec.Job.ID)
 			rec.Status = StatusQueued
 			requeued++
 		case StatusFailedReal:
@@ -90,7 +105,8 @@ func cmdResume(args []string, onlyFailed bool) int {
 		}
 		log.Printf("refreshed %d queued/failed jobs; state backup: %s", n, backup)
 	}
-	n := prepareResume(st, ex, dir, onlyFailed)
+	sched := NewScheduler(cfg, st, ex, realClock{}, dir)
+	n := prepareResume(sched, ex, dir, onlyFailed)
 	log.Printf("requeued %d jobs", n)
 	if err := SaveState(dir, st); err != nil {
 		log.Print(err)
