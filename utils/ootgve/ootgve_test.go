@@ -100,6 +100,9 @@ func TestValidateModuleInfo(t *testing.T) {
 	}{
 		{name: "out of tree module", taint: "O", modulePath: "/lib/modules/6.12.0/extra/gve.ko"},
 		{name: "out of tree and unsigned module", taint: "OE", modulePath: "/lib/modules/6.12.0/extra/gve.ko.xz"},
+		{name: "kmod subdirectory", taint: "O", modulePath: "/lib/modules/6.12.0/extra/gve-el10_2/gve.ko"},
+		{name: "weak updates kmod", taint: "O", modulePath: "/lib/modules/6.12.0/weak-updates/gve-el10_2/gve.ko"},
+		{name: "misleading filename", taint: "O", modulePath: "/lib/modules/6.12.0/extra/gve.ko.backup", wantErr: "want the out-of-tree module"},
 		{name: "unsigned in tree module", taint: "E", modulePath: "/lib/modules/6.12.0/extra/gve.ko", wantErr: "want out-of-tree flag O"},
 		{name: "in tree path", taint: "O", modulePath: "/lib/modules/6.12.0/kernel/drivers/net/ethernet/google/gve/gve.ko.xz", wantErr: "want the out-of-tree module under /extra"},
 	}
@@ -124,6 +127,10 @@ func TestCheckModule(t *testing.T) {
 			return nil, nil
 		case "modinfo":
 			return []byte("/lib/modules/6.12.0/extra/gve.ko.xz\n"), nil
+		case "readlink":
+			return []byte("/lib/modules/6.12.0/extra/gve.ko.xz\n"), nil
+		case "rpm":
+			return []byte("gve\n"), nil
 		default:
 			return nil, errors.New("unexpected command")
 		}
@@ -143,6 +150,66 @@ func TestCheckModule(t *testing.T) {
 
 	if err := checkModule(context.Background(), run, readFile, stat); err != nil {
 		t.Fatalf("checkModule() = %v, want nil", err)
+	}
+}
+
+func TestCheckKmodModule(t *testing.T) {
+	const selected = "/lib/modules/6.12.0-ciq/weak-updates/gve-el10_2/gve.ko"
+	const target = "/usr/lib/modules/6.12.0/extra/gve-el10_2/gve.ko"
+	for _, tc := range []struct {
+		name, resolved, provider, owner, diskVersion, loadedVersion, wantErr string
+		broken                                                               bool
+	}{
+		{name: "kmod", resolved: target, provider: "kmod-gve-el10_2", owner: "kmod-gve-el10_2", diskVersion: "1.4.10~26-oot", loadedVersion: "1.4.10~26-oot"},
+		{name: "wrong owner", resolved: target, provider: "kmod-gve-el10_2", owner: "kernel-modules", wantErr: "owned by"},
+		{name: "unexpected provider", resolved: target, provider: "unrelated", wantErr: "provider"},
+		{name: "in tree target", resolved: "/lib/modules/6.12.0/kernel/drivers/net/ethernet/google/gve/gve.ko", provider: "kmod-gve-el10_2", wantErr: "out-of-tree module"},
+		{name: "broken symlink", broken: true, wantErr: "resolving"},
+		{name: "not oot version", resolved: target, provider: "kmod-gve-el10_2", owner: "kmod-gve-el10_2", diskVersion: "1.4.10", loadedVersion: "1.4.10", wantErr: "-oot"},
+		{name: "stale loaded module", resolved: target, provider: "kmod-gve-el10_2", owner: "kmod-gve-el10_2", diskVersion: "1.4.10~26-oot", loadedVersion: "1.4.10~22-oot", wantErr: "loaded gve version"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := func(_ context.Context, name string, args ...string) ([]byte, error) {
+				switch name + " " + strings.Join(args, " ") {
+				case "modprobe gve":
+					return nil, nil
+				case "modinfo -F filename gve":
+					return []byte(selected), nil
+				case "readlink -e " + selected:
+					if tc.broken {
+						return nil, errors.New("missing target")
+					}
+					return []byte(tc.resolved), nil
+				case "rpm -q --qf %{NAME}\\n --whatprovides gve":
+					return []byte(tc.provider + "\n"), nil
+				case "rpm -qf --qf %{NAME}\\n " + tc.resolved:
+					return []byte(tc.owner + "\n"), nil
+				case "modinfo -F version " + tc.resolved:
+					return []byte(tc.diskVersion + "\n"), nil
+				default:
+					t.Fatalf("unexpected command: %s %q", name, args)
+					return nil, nil
+				}
+			}
+			read := func(path string) ([]byte, error) {
+				switch path {
+				case "/sys/module/gve/taint":
+					return []byte("OE\n"), nil
+				case "/sys/module/gve/version":
+					return []byte(tc.loadedVersion + "\n"), nil
+				default:
+					t.Fatalf("unexpected read: %s", path)
+					return nil, nil
+				}
+			}
+			err := checkModule(context.Background(), run, read, func(string) error { return nil })
+			if tc.wantErr == "" && err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("got %v, want error containing %q", err, tc.wantErr)
+			}
+		})
 	}
 }
 
