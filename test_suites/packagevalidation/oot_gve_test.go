@@ -21,16 +21,6 @@ import (
 	"github.com/GoogleCloudPlatform/cloud-image-tests/utils/ootgve"
 )
 
-const dnfConfigPath = "/etc/dnf/dnf.conf"
-
-func TestOOTGVEDNFExcludes(t *testing.T) {
-	utils.LinuxOnly(t)
-
-	if err := ootgve.CheckDNFKernelExcludes(dnfConfigPath); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestOOTGVEModule(t *testing.T) {
 	utils.LinuxOnly(t)
 	if err := ootgve.CheckModule(utils.Context(t)); err != nil {

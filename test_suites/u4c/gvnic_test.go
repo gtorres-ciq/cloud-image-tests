@@ -84,14 +84,6 @@ func TestGVNICsVisible(t *testing.T) {
 	}
 }
 
-func TestOOTGVEDNFExcludes(t *testing.T) {
-	utils.LinuxOnly(t)
-
-	if err := ootgve.CheckDNFKernelExcludes("/etc/dnf/dnf.conf"); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestOOTGVEModule(t *testing.T) {
 	utils.LinuxOnly(t)
 

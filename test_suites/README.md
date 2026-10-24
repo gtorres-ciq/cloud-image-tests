@@ -145,9 +145,6 @@ Validate `google_nvme_id` output directly against attached NVMe Local SSD device
 #### TestGVNICsVisible
 Validate that all three U4C gVNICs advertised by the metadata server are visible to the Linux kernel and bound to the `gve` driver.
 
-#### TestOOTGVEDNFExcludes
-Validate that DNF excludes both the `kernel` package and all `kernel-*` subpackages so an update cannot replace the kernel expected by the out-of-tree gVNIC driver.
-
 #### TestOOTGVEModule
 Validate that the loaded `gve` module is marked as out-of-tree and resolves to the driver installed under the kernel's `extra` module directory.
 

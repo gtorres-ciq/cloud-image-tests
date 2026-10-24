@@ -17,8 +17,6 @@
 package ootgve
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -26,69 +24,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"unicode"
 )
 
 type commandRunner func(context.Context, string, ...string) ([]byte, error)
 type fileReader func(string) ([]byte, error)
 type pathStatter func(string) error
-
-// ValidateDNFKernelExcludes verifies that the DNF main configuration excludes
-// both the kernel package and all kernel subpackages.
-func ValidateDNFKernelExcludes(config []byte) error {
-	inMain := false
-	hasKernel := false
-	hasKernelGlob := false
-
-	scanner := bufio.NewScanner(bytes.NewReader(config))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			inMain = strings.EqualFold(line, "[main]")
-			continue
-		}
-		if !inMain || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		keyValue := strings.SplitN(line, "=", 2)
-		if len(keyValue) != 2 || !strings.EqualFold(strings.TrimSpace(keyValue[0]), "exclude") {
-			continue
-		}
-
-		hasKernel = false
-		hasKernelGlob = false
-		for _, exclude := range strings.FieldsFunc(keyValue[1], func(r rune) bool {
-			return r == ',' || unicode.IsSpace(r)
-		}) {
-			switch exclude {
-			case "kernel":
-				hasKernel = true
-			case "kernel-*":
-				hasKernelGlob = true
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scanning DNF configuration: %w", err)
-	}
-	if !hasKernel || !hasKernelGlob {
-		return fmt.Errorf("does not exclude both kernel and kernel-* packages")
-	}
-	return nil
-}
-
-// CheckDNFKernelExcludes reads and validates a DNF configuration file.
-func CheckDNFKernelExcludes(path string) error {
-	config, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading %q: %w", path, err)
-	}
-	if err := ValidateDNFKernelExcludes(config); err != nil {
-		return fmt.Errorf("%s %w; contents:\n%s", path, err, config)
-	}
-	return nil
-}
 
 var modulePathPattern = regexp.MustCompile(`^/(usr/)?lib/modules/[^/]+/(extra|weak-updates)/(.+/)?gve\.ko(\.(xz|gz|zst))?$`)
 

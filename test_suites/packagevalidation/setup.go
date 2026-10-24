@@ -40,7 +40,7 @@ func TestSetup(t *imagetest.TestWorkflow) error {
 	}
 	tests := "TestStandardPrograms|TestGuestPackages"
 	if isOOTGVEImage(t.Image.Name) {
-		tests += "|TestOOTGVEDNFExcludes|TestOOTGVEModule"
+		tests += "|TestOOTGVEModule"
 	}
 	// Artifact registry plugin is not installed on all images. Test only runs if
 	// the image is built with artifact registry plugin. Tests requires

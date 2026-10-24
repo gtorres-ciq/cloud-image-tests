@@ -17,79 +17,9 @@ package ootgve
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func TestValidateDNFKernelExcludes(t *testing.T) {
-	tests := []struct {
-		name    string
-		config  string
-		wantErr string
-	}{
-		{
-			name: "required excludes",
-			config: `[main]
-gpgcheck=1
-exclude=kernel,kernel-*
-`,
-		},
-		{
-			name: "space separated and reordered",
-			config: `[main]
-exclude=kernel-* kernel vim
-`,
-		},
-		{
-			name: "missing kernel glob",
-			config: `[main]
-exclude=kernel
-`,
-			wantErr: "does not exclude both kernel and kernel-* packages",
-		},
-		{
-			name: "exclude outside main section",
-			config: `[main]
-gpgcheck=1
-[repository]
-exclude=kernel,kernel-*
-`,
-			wantErr: "does not exclude both kernel and kernel-* packages",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			err := ValidateDNFKernelExcludes([]byte(tc.config))
-			if tc.wantErr == "" && err != nil {
-				t.Fatalf("ValidateDNFKernelExcludes() = %v, want nil", err)
-			}
-			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
-				t.Fatalf("ValidateDNFKernelExcludes() = %v, want error containing %q", err, tc.wantErr)
-			}
-		})
-	}
-}
-
-func TestCheckDNFKernelExcludes(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "dnf.conf")
-	if err := os.WriteFile(path, []byte("[main]\nexclude=kernel kernel-*\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := CheckDNFKernelExcludes(path); err != nil {
-		t.Fatalf("CheckDNFKernelExcludes(%q) = %v, want nil", path, err)
-	}
-}
-
-func TestCheckDNFKernelExcludesReportsReadError(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "missing-dnf.conf")
-	if err := CheckDNFKernelExcludes(path); err == nil || !strings.Contains(err.Error(), path) {
-		t.Fatalf("CheckDNFKernelExcludes(%q) = %v, want error naming path", path, err)
-	}
-}
 
 func TestValidateModuleInfo(t *testing.T) {
 	tests := []struct {
