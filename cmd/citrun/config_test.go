@@ -77,6 +77,11 @@ func TestValidateRejects(t *testing.T) {
 		{"zone_set rule empty shapes rejected", "suites: [ssh]", "suites: [ssh]\nrules:\n  - zone_set: {set: zs1}", "zone_set requires non-empty shapes"},
 		{"timeout rule empty shapes rejected", "suites: [ssh]", "suites: [ssh]\nrules:\n  - timeout: {value: 5m}", "timeout requires non-empty shapes"},
 		{"quarantine entry with no image/shape/suite rejected", "suites: [ssh]", "suites: [ssh]\nquarantine:\n  - {reason: bogus}", "needs image, shape, or suite"},
+		{"tier with unknown shape rejected", "suites: [ssh]", "suites: [ssh]\ntiers:\n  \"1\":\n    - {shape: nope, zones: [r1-a]}", "unknown shape"},
+		{"tier zone without budget region rejected", "suites: [ssh]", "suites: [ssh]\ntiers:\n  \"1\":\n    - {shape: c3-standard-4, zones: [r9-a]}", "no budgets"},
+		{"tier with empty zones rejected", "suites: [ssh]", "suites: [ssh]\ntiers:\n  \"1\":\n    - {shape: c3-standard-4, zones: []}", "zones must be non-empty"},
+		{"tier with duplicate shape rejected", "suites: [ssh]", "suites: [ssh]\ntiers:\n  \"1\":\n    - {shape: c3-standard-4, zones: [r1-a]}\n    - {shape: c3-standard-4, zones: [r1-b]}", "duplicate entry"},
+		{"tier with empty entries rejected", "suites: [ssh]", "suites: [ssh]\ntiers:\n  \"1\": []", "needs at least one entry"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

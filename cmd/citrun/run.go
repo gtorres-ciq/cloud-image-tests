@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -30,6 +31,7 @@ func cmdRun(args []string) int {
 	suites := fs.String("suites", "", "comma-separated suite globs")
 	runDir := fs.String("run-dir", "", "run directory (default runs/<timestamp>)")
 	dryRun := fs.Bool("dry-run", false, "print the expanded plan and exit")
+	tier := fs.String("tier", "all", "matrix slice: all (default), or a tier name from citrun.yaml tiers: (1=mandate, 2=flag-only)")
 	fs.Parse(args)
 
 	cfg, err := LoadConfig(*configPath)
@@ -37,8 +39,22 @@ func cmdRun(args []string) int {
 		log.Print(err)
 		return 2
 	}
+	if *tier != "all" && *tier != "" {
+		if _, ok := cfg.Tiers[*tier]; !ok {
+			var names []string
+			for n := range cfg.Tiers {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			log.Printf("unknown tier %q (configured tiers: %s)", *tier, strings.Join(names, ", "))
+			return 2
+		}
+	}
 	filter := JobFilter{Configs: splitGlobs(*configs), Images: splitGlobs(*images),
 		Shapes: splitGlobs(*shapes), Suites: splitGlobs(*suites)}
+	if *tier != "all" {
+		filter.Tier = *tier
+	}
 	jobs, err := ExpandJobs(cfg, filter)
 	if err != nil {
 		log.Print(err)
@@ -99,6 +115,7 @@ func userHome() (string, error) {
 }
 
 func executeRun(cfg *Config, st *RunState, dir string) int {
+	start := time.Now()
 	home, err := userHome()
 	if err != nil {
 		log.Print(err)
@@ -149,6 +166,7 @@ func executeRun(cfg *Config, st *RunState, dir string) int {
 	}
 	md, _ := BuildReport(final, dir, 15)
 	fmt.Println(md)
+	fmt.Printf("\n  Total time: %s\n", formatTotalTime(time.Since(start)))
 	if err := writeReportFiles(dir, final, 15); err != nil {
 		log.Printf("WARN: write report files: %v", err)
 	}
@@ -158,6 +176,16 @@ func executeRun(cfg *Config, st *RunState, dir string) int {
 		}
 	}
 	return 0
+}
+
+// formatTotalTime renders a wall-clock duration as "66m 33s" (minutes are
+// not capped at 60; sub-minute durations render as "42s").
+func formatTotalTime(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return d.String()
+	}
+	return fmt.Sprintf("%dm %02ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
 func printPlan(jobs []Job) {

@@ -95,6 +95,13 @@ type QuarantineEntry struct {
 	Reason string `yaml:"reason"`
 }
 
+// TierEntry pins one shape to an explicit zone sweep for a tier run; a shape
+// absent from a tier's list does not run in that tier.
+type TierEntry struct {
+	Shape string   `yaml:"shape"`
+	Zones []string `yaml:"zones"`
+}
+
 type Family struct {
 	Name       string `yaml:"name"`
 	Shape      string `yaml:"shape"`
@@ -112,19 +119,20 @@ type SVConfig struct {
 }
 
 type Config struct {
-	Project         string              `yaml:"project"`
-	ImagePrefix     string              `yaml:"image_prefix"`
-	DockerImage     string              `yaml:"docker_image"`
-	ContainerCap    int                 `yaml:"container_cap"`
-	SafetyFactor    float64             `yaml:"safety_factor"`
-	Budgets         Budgets             `yaml:"budgets"`
-	ZoneSets        map[string][]string `yaml:"zone_sets"`
-	Shapes          map[string]Shape    `yaml:"shapes"`
-	Suites          map[string]Suite    `yaml:"suites"`
-	Matrix          []MatrixConfig      `yaml:"matrix"`
-	Rules           []Rule              `yaml:"rules"`
-	Quarantine      []QuarantineEntry   `yaml:"quarantine"`
-	ShapeValidation SVConfig            `yaml:"shapevalidation"`
+	Project         string                 `yaml:"project"`
+	ImagePrefix     string                 `yaml:"image_prefix"`
+	DockerImage     string                 `yaml:"docker_image"`
+	ContainerCap    int                    `yaml:"container_cap"`
+	SafetyFactor    float64                `yaml:"safety_factor"`
+	Budgets         Budgets                `yaml:"budgets"`
+	ZoneSets        map[string][]string    `yaml:"zone_sets"`
+	Shapes          map[string]Shape       `yaml:"shapes"`
+	Suites          map[string]Suite       `yaml:"suites"`
+	Matrix          []MatrixConfig         `yaml:"matrix"`
+	Rules           []Rule                 `yaml:"rules"`
+	Quarantine      []QuarantineEntry      `yaml:"quarantine"`
+	Tiers           map[string][]TierEntry `yaml:"tiers"`
+	ShapeValidation SVConfig               `yaml:"shapevalidation"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -256,6 +264,32 @@ func (c *Config) Validate() error {
 	for i, q := range c.Quarantine {
 		if q.Image == "" && q.Shape == "" && q.Suite == "" {
 			return fmt.Errorf("quarantine %d: needs image, shape, or suite", i)
+		}
+	}
+	for name, entries := range c.Tiers {
+		if len(entries) == 0 {
+			return fmt.Errorf("tier %s: needs at least one entry", name)
+		}
+		seen := map[string]bool{}
+		for i, e := range entries {
+			if e.Shape == "" {
+				return fmt.Errorf("tier %s entry %d: shape is required", name, i)
+			}
+			if _, ok := c.Shapes[e.Shape]; !ok {
+				return fmt.Errorf("tier %s entry %d: unknown shape %q", name, i, e.Shape)
+			}
+			if seen[e.Shape] {
+				return fmt.Errorf("tier %s: duplicate entry for shape %s", name, e.Shape)
+			}
+			seen[e.Shape] = true
+			if len(e.Zones) == 0 {
+				return fmt.Errorf("tier %s entry %d: zones must be non-empty", name, i)
+			}
+			for _, z := range e.Zones {
+				if _, ok := c.Budgets.Regions[zoneRegion(z)]; !ok {
+					return fmt.Errorf("tier %s entry %d: zone %s has no budgets for region %s", name, i, z, zoneRegion(z))
+				}
+			}
 		}
 	}
 	for _, f := range c.ShapeValidation.Families {

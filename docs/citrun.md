@@ -57,7 +57,8 @@ go run ./cmd/citrun run
 
 Loads `citrun.yaml`, expands the full matrix, creates `runs/<ts>/`, then
 schedules and executes every job. Prints a ticker line every 30s and the final report on
-completion. Exit code: `0` if every job ended `passed` or
+completion, ending with a `Total time:` line for the invocation's wall clock
+(stdout only). Exit code: `0` if every job ended `passed` or
 `skipped_quarantine`, `1` if any job ended `failed_real`/`failed_infra`, `2`
 on a setup error (bad config, bad filters, I/O failure).
 
@@ -83,6 +84,29 @@ go run ./cmd/citrun run -configs x86 -shapes 'c3-*' -suites ssh,disk
 glob lists (`path.Match` syntax) and AND together. Combine with `-dry-run`
 first to confirm the slice is what you expect.
 
+### tiered run — run the GCE mandate or flag-only slice
+
+```
+go run ./cmd/citrun run -dry-run -tier 1
+go run ./cmd/citrun run -tier 2
+```
+
+`-tier` selects a named entry from the `tiers:` section of `citrun.yaml`
+(populated from the per-attempt analysis in
+`gce-mandate-vs-flagonly-lists.md`). The default is `-tier all`, which runs
+the full matrix exactly as before. Under a tier:
+
+- only the shapes listed in that tier expand into jobs (all their configured
+  images and suites run);
+- each listed shape's zone sweep is **replaced** with the tier's zones — tier
+  zones need not be in the shape's `zone_set` (most tier-2 zones are
+  deliberately absent from it);
+- the `shapevalidation` families do not run.
+
+Use `-dry-run` first: tier entries change placement, not job counts, so the
+per-config totals should match the shapes×images×suites arithmetic for the
+tier's shapes.
+
 ### `resume` — continue an interrupted run
 
 ```
@@ -104,6 +128,18 @@ go run ./cmd/citrun rerun-failed runs/20260810-120000
 ```
 
 Identical to `resume`, except `failed_real` jobs are requeued as well.
+
+Both `resume` and `rerun-failed` accept `-dry-run`:
+
+```
+go run ./cmd/citrun rerun-failed -dry-run runs/20260810-120000
+```
+
+It prints the requeue plan — counts by category, then every job ID that
+would requeue, plus any still-live containers that would be awaited/attached
+instead — and exits without modifying `state.json` or launching anything.
+`-refresh-config` is ignored in dry-run mode (it mutates state, so it is
+skipped).
 
 After editing a run's saved `citrun.yaml`, explicitly refresh its saved job
 placement and CPU accounting before retrying:
@@ -238,6 +274,13 @@ one job runs in one zone, and the remaining zones are available for retry.
 Set `each_zone: true` on a matrix entry when every zone is part of the test
 coverage. `citrun` then creates one independently reported job per zone,
 pins each job to that zone, and appends the zone to its job ID.
+
+A `tiers:` section (`map[name][]TierEntry`, each `{shape, zones}`) is only
+consulted when `run` is invoked with `-tier <name>`; with the default
+`-tier all` it has no effect. A tier entry replaces the named shape's zone
+sweep and excludes any shape not listed from that tier's expansion. Every
+tier zone's region must have budgets, and the shape must exist — `Validate()`
+enforces both. Quote numeric tier keys (`"1":`) so YAML keeps them strings.
 
 **Any of these changes will change `ExpandJobs`' output — and
 `cmd/citrun/invariants_test.go`'s `TestMatrixInvariants` exists specifically to

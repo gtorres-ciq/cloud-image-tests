@@ -19,6 +19,8 @@ type Job struct {
 
 type JobFilter struct {
 	Configs, Images, Shapes, Suites []string
+	// Tier selects a named entry from cfg.Tiers ("" or "all" = full matrix).
+	Tier string
 }
 
 func matchAny(globs []string, s string) bool {
@@ -120,6 +122,20 @@ func applyQuarantine(cfg *Config, j *Job) {
 	}
 }
 
+// tierZones returns the tier's pinned zone sweep for a shape; ok is false
+// when the tier is inactive ("") or "all", or the shape has no entry (excluded).
+func tierZones(cfg *Config, tier, shapeName string) (zones []string, ok bool) {
+	if tier == "" || tier == "all" {
+		return nil, true
+	}
+	for _, e := range cfg.Tiers[tier] {
+		if e.Shape == shapeName {
+			return e.Zones, true
+		}
+	}
+	return nil, false
+}
+
 func ExpandJobs(cfg *Config, f JobFilter) ([]Job, error) {
 	var jobs []Job
 	seen := map[string]bool{}
@@ -141,6 +157,10 @@ func ExpandJobs(cfg *Config, f JobFilter) ([]Job, error) {
 				full, base := fullImage(cfg.ImagePrefix, img)
 				for _, suiteName := range m.Suites {
 					su := cfg.Suites[suiteName]
+					tieredZones, inTier := tierZones(cfg, f.Tier, shapeName)
+					if !inTier {
+						continue
+					}
 					vms := su.VMs
 					if vms < 1 {
 						vms = 1
@@ -156,6 +176,9 @@ func ExpandJobs(cfg *Config, f JobFilter) ([]Job, error) {
 					}
 					if !keepJob(cfg, &j) {
 						continue
+					}
+					if tieredZones != nil {
+						j.Zones = append([]string(nil), tieredZones...)
 					}
 					if m.EachZone {
 						for _, zone := range j.Zones {
@@ -180,8 +203,12 @@ func ExpandJobs(cfg *Config, f JobFilter) ([]Job, error) {
 
 	sv := cfg.ShapeValidation
 	svSuite, hasSV := cfg.Suites["shapevalidation"]
-	if len(sv.Families) > 0 && !hasSV {
+	// shapevalidation families are not in the tier lists: excluded under a tier run.
+	if len(sv.Families) > 0 && !hasSV && (f.Tier == "" || f.Tier == "all") {
 		return nil, fmt.Errorf("shapevalidation families configured but no shapevalidation suite entry")
+	}
+	if f.Tier != "" && f.Tier != "all" {
+		return jobs, nil
 	}
 	for _, fam := range sv.Families {
 		images := sv.Images

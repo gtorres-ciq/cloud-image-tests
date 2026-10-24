@@ -162,3 +162,95 @@ quarantine:`, 1)
 		t.Fatalf("sv pinned wrong: %+v", t2a)
 	}
 }
+
+const tierConfig = `
+project: p
+image_prefix: projects/imgs/global/images/family
+budgets:
+  networks: 10
+  subnetworks: 20
+  regions:
+    r1: {CPUS: 1000, C3_CPUS: 500}
+    r2: {CPUS: 1000}
+zone_sets:
+  main: [r1-a, r1-b]
+shapes:
+  c3-standard-4:  {arch: x86, cpus: 4, family: C3_CPUS, zone_set: main}
+  n1-standard-4:  {arch: x86, cpus: 4, family: CPUS, zone_set: main}
+suites:
+  ssh:  {vms: 4, timeout: 30m, est: 9m}
+  lssd: {vms: 1, timeout: 15m, est: 3m}
+matrix:
+  - name: x86
+    shapes: [c3-standard-4, n1-standard-4]
+    images: [img-a, img-b]
+    suites: [ssh, lssd]
+tiers:
+  "1":
+    - {shape: c3-standard-4, zones: [r1-c]}
+  "2":
+    - {shape: n1-standard-4, zones: [r1-c, r1-d]}
+`
+
+func TestExpandTierFiltersShapesAndPinsZones(t *testing.T) {
+	jobs := expand(t, tierConfig, JobFilter{Tier: "1"})
+	// Only the tier's shape expands; the other shape's jobs are gone.
+	for _, j := range jobs {
+		if j.Shape != "c3-standard-4" {
+			t.Errorf("shape %s ran under tier 1 (not in tier): %+v", j.Shape, j)
+		}
+		if len(j.Zones) != 1 || j.Zones[0] != "r1-c" {
+			t.Errorf("job %s zones = %v, want [r1-c]", j.ID, j.Zones)
+		}
+	}
+	if len(jobs) != 4 { // 2 images × 2 suites on the one tier shape
+		t.Fatalf("tier 1 jobs = %d, want 4: %+v", len(jobs), jobs)
+	}
+}
+
+func TestExpandTierPinsZonesOutsideShapeZoneSet(t *testing.T) {
+	// r1-c/r1-d are valid budget zones in no zone_set — tier replaces the sweep.
+	jobs := expand(t, tierConfig, JobFilter{Tier: "2"})
+	for _, j := range jobs {
+		if j.Shape != "n1-standard-4" {
+			t.Errorf("shape %s ran under tier 2 (not in tier): %+v", j.Shape, j)
+		}
+		if len(j.Zones) != 2 || j.Zones[0] != "r1-c" || j.Zones[1] != "r1-d" {
+			t.Errorf("job %s zones = %v, want [r1-c r1-d]", j.ID, j.Zones)
+		}
+	}
+}
+
+func TestExpandTierAllEqualsFullMatrix(t *testing.T) {
+	full := expand(t, tierConfig, JobFilter{})
+	all := expand(t, tierConfig, JobFilter{Tier: "all"})
+	if len(full) != len(all) {
+		t.Fatalf("tier all = %d jobs, full matrix = %d", len(all), len(full))
+	}
+	for i := range full {
+		if full[i].ID != all[i].ID || len(full[i].Zones) != len(all[i].Zones) {
+			t.Fatalf("tier all diverges at %d: %s vs %s", i, full[i].ID, all[i].ID)
+		}
+	}
+}
+
+func TestExpandTierExcludesShapeValidation(t *testing.T) {
+	svYAML := strings.Replace(tierConfig, "tiers:", `shapevalidation:
+  images: [img-a]
+  arm_images: [img-arm]
+  families:
+    - {name: C3, shape: c3-highmem-176, cpus: 176, family: C3_CPUS, arch: x86, zone_set: main}
+tiers:`, 1)
+	svYAML = strings.Replace(svYAML, "  ssh:  {vms: 4, timeout: 30m, est: 9m}",
+		"  ssh:  {vms: 4, timeout: 30m, est: 9m}\n  shapevalidation: {vms: 1, timeout: 30m, est: 6m}", 1)
+	full := expand(t, svYAML, JobFilter{Configs: []string{"shapevalidation"}})
+	if len(full) != 1 {
+		t.Fatalf("full matrix sv jobs = %d, want 1", len(full))
+	}
+	tiered := expand(t, svYAML, JobFilter{Tier: "1"})
+	for _, j := range tiered {
+		if j.Suite == "shapevalidation" {
+			t.Errorf("shapevalidation ran under tier 1: %+v", j)
+		}
+	}
+}
