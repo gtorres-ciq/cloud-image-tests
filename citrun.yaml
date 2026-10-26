@@ -132,13 +132,13 @@ suites:
   imageboot:          {vms: 4,  timeout: 20m, est: 4m}
   licensevalidation:  {vms: 1,  timeout: 20m, est: 3m}
   livemigrate:        {vms: 1,  timeout: 25m, est: 6m}
-  loadbalancer:       {vms: 6, networks: 1, subnets: 2, timeout: 30m, est: 8m}
+  loadbalancer:       {vms: 6, networks: 1, subnets: 2, timeout: 30m, est: 17m}
   lssd:               {vms: 1,  timeout: 15m, est: 3m}
   metadata:           {vms: 8,  timeout: 20m, est: 5m}
   network:            {vms: 3, networks: 2, subnets: 2, timeout: 35m, est: 10m}
   packagevalidation:  {vms: 6,  timeout: 15m, est: 2m30s}
   security:           {vms: 1,  timeout: 15m, est: 2m30s}
-  ssh:                {vms: 4,  timeout: 30m, est: 8m30s}
+  ssh:                {vms: 4,  timeout: 30m, est: 11m}
   suspendresume:      {vms: 1,  timeout: 20m, est: 3m30s}
   vmspec:             {vms: 1, networks: 2, subnets: 2, timeout: 35m, est: 6m30s}
   shapevalidation:    {vms: 1,  timeout: 30m, est: 5m30s}
