@@ -73,6 +73,16 @@ func TestClassifyResult(t *testing.T) {
 	pass := `<?xml version="1.0"?><testsuites><testsuite><testcase name="t"/></testsuite></testsuites>`
 	fail := `<testsuites><testsuite><testcase name="t"><failure message="assert broke"/></testcase></testsuite></testsuites>`
 	stockoutJunit := `<testsuites><testsuite><testcase name="t"><failure message="x"><![CDATA[Code: ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS]]></failure></testcase></testsuite></testsuites>`
+	fingerprint412 := `<testsuites><testsuite><testcase name="t"><failure message="Failed"><![CDATA[image_ssh_test.go:117: failed to set instance metadata: googleapi: Error 412: Supplied fingerprint does not match current metadata fingerprint., conditionNotMet]]></failure></testcase></testsuite></testsuites>`
+	resourceInUse := `<testsuites><testsuite><testcase name="t"><failure message="Failed"><![CDATA[googleapi: Error 400: The disk resource 'disk' is already being used by 'instance', resourceInUseByAnotherResource]]></failure></testcase></testsuite></testsuites>`
+	gcsGoaway := `<testsuites><testsuite><testcase name="t"><failure message="" type="Failure"><![CDATA[Post "https://storage.googleapis.com/upload/storage/v1/b/bucket/o": http2: server sent GOAWAY and closed the connection; LastStreamID=29, ErrCode=NO_ERROR, debug="server_shutting_down"]]></failure></testcase></testsuite></testsuites>`
+	daisy503 := `<testsuites><testsuite><testcase name="t"><failure message="" type="Failure"><![CDATA[step "create-disks" run error: operation failed &{HttpErrorMessage:SERVICE UNAVAILABLE HttpErrorStatusCode:503 OperationType:insert}]]></failure></testcase></testsuite></testsuites>`
+	compute502 := `<testsuites><testsuite><testcase name="t"><failure message="" type="Failure"><![CDATA[googleapi: got HTTP response code 502 with body: <!DOCTYPE html>]]></failure></testcase></testsuite></testsuites>`
+	mixedInfraAndReal := `<testsuites><testsuite>` +
+		`<testcase name="a"><failure message="Failed"><![CDATA[googleapi: Error 412: conditionNotMet]]></failure></testcase>` +
+		`<testcase name="b"><failure message="Failed"><![CDATA[error pinging google.com on nic eth0, 40% packet loss]]></failure></testcase>` +
+		`</testsuite></testsuites>`
+	cleanupNotFoundLog := "serial-once: deleting VM vm1: googleapi: Error 404: not found, notFound (cleanerupper will retry)"
 
 	cases := []struct {
 		name, junit, log string
@@ -91,12 +101,45 @@ func TestClassifyResult(t *testing.T) {
 		{"stockout in log no junit", "", "err INSUFFICIENT_CAPACITY somewhere", errors.New("exit 1"), false, ClassStockout},
 		{"timeout wins", "", "whatever", errors.New("killed"), true, ClassTimeout},
 		{"no junit no codes", "", "manager panicked", errors.New("exit 2"), false, ClassError},
+		{"metadata fingerprint 412 in junit", fingerprint412, "", nil, false, ClassInfra},
+		{"resource in use in junit", resourceInUse, "", errors.New("exit 1"), false, ClassInfra},
+		{"gcs goaway in junit", gcsGoaway, "", errors.New("exit 1"), false, ClassInfra},
+		{"daisy 503 in junit", daisy503, "", errors.New("exit 1"), false, ClassInfra},
+		{"compute api 502 in junit", compute502, "", errors.New("exit 1"), false, ClassInfra},
+		{"mixed api error and real failure", mixedInfraAndReal, "", nil, false, ClassFail},
+		{"cleanup notFound in log does not mask real failure", fail, cleanupNotFoundLog, nil, false, ClassFail},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := classifyResult(c.err, writeJobDir(t, c.junit, c.log), c.timedOut)
 			if got.Classification != c.want {
 				t.Errorf("= %q (%s), want %q", got.Classification, got.Detail, c.want)
+			}
+		})
+	}
+}
+
+func TestAllFailureBlocksMatch(t *testing.T) {
+	infra := `<testsuites><testsuite>` +
+		`<testcase name="a"><failure message="x"><![CDATA[googleapi: Error 412: conditionNotMet]]></failure></testcase>` +
+		`<testcase name="b"><failure message="y"><![CDATA[HttpErrorStatusCode:503 SERVICE UNAVAILABLE]]></failure></testcase>` +
+		`</testsuite></testsuites>`
+	mixed := `<testsuites><testsuite>` +
+		`<testcase name="a"><failure message="x"><![CDATA[googleapi: Error 412: conditionNotMet]]></failure></testcase>` +
+		`<testcase name="b"><failure message="y"><![CDATA[error pinging google.com, 40% packet loss]]></failure></testcase>` +
+		`</testsuite></testsuites>`
+	cases := []struct {
+		name, junit string
+		want        bool
+	}{
+		{"all blocks are api errors", infra, true},
+		{"one real failure among api errors", mixed, false},
+		{"no failure blocks", `<testsuites><testsuite><testcase name="a"/></testsuite></testsuites>`, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := allFailureBlocksMatch([]byte(c.junit), apiErrRe); got != c.want {
+				t.Errorf("= %v, want %v", got, c.want)
 			}
 		})
 	}

@@ -19,6 +19,7 @@ const (
 	ClassQuota    = "quota"
 	ClassTimeout  = "timeout"
 	ClassError    = "error"
+	ClassInfra    = "infra"
 )
 
 const hardTimeoutSlack = 10 * time.Minute
@@ -84,6 +85,9 @@ func buildDockerArgs(d *DockerExecutor, job Job, zone, jobDir string) []string {
 var (
 	stockoutRe = regexp.MustCompile(`ZONE_RESOURCE_POOL_EXHAUSTED|INSUFFICIENT_CAPACITY|RESOURCE_POOL_EXHAUSTED`)
 	quotaRe    = regexp.MustCompile(`(?i)QUOTA_EXCEEDED|RATE.?EXCEEDED|RATE.?LIMIT|HTTP.?429|RESOURCE_EXHAUSTED`)
+	apiErrRe   = regexp.MustCompile(
+		`googleapi: Error \d{3}|resourceInUseByAnotherResource|HttpErrorStatusCode:\d{3}|` +
+			`SERVICE UNAVAILABLE|googleapi: got HTTP response code 5\d\d|http2: server sent GOAWAY`)
 )
 
 func firstMatch(b []byte, re *regexp.Regexp) string {
@@ -95,6 +99,24 @@ func firstMatch(b []byte, re *regexp.Regexp) string {
 		return string(b[loc[0]:end])
 	}
 	return ""
+}
+
+// allFailureBlocksMatch splits junit.xml on each <failure element and reports
+// whether every failure block (from its <failure tag to the next failure or
+// end of document) contains a match of re. Testcases without a failure
+// contribute no block, so they cannot mask an infra classification.
+func allFailureBlocksMatch(junit []byte, re *regexp.Regexp) bool {
+	idx := bytes.Split(junit, []byte("<failure"))
+	blocks := idx[1:]
+	if len(blocks) == 0 {
+		return false
+	}
+	for _, b := range blocks {
+		if !re.Match(b) {
+			return false
+		}
+	}
+	return true
 }
 
 func classifyResult(runErr error, jobDir string, timedOut bool) Result {
@@ -112,6 +134,11 @@ func classifyResult(runErr error, jobDir string, timedOut bool) Result {
 		}
 		if stockoutRe.Match(junit) {
 			return Result{ClassStockout, firstMatch(junit, stockoutRe)}
+		}
+		// Infra only when EVERY failure block is an API error; one genuine
+		// assertion failure anywhere keeps the job a real failure.
+		if allFailureBlocksMatch(junit, apiErrRe) {
+			return Result{ClassInfra, firstMatch(junit, apiErrRe)}
 		}
 		return Result{ClassFail, ""}
 	}

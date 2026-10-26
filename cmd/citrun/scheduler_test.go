@@ -414,6 +414,30 @@ func TestRealFailureNeverRetries(t *testing.T) {
 	}
 }
 
+func TestInfraRetriesThenFailsInfra(t *testing.T) {
+	jobs := []Job{job("j1", 16)}
+	s, ex, _, st := schedFixture(t, schedConfig, jobs)
+	ex.script["j1"] = []Result{
+		{Classification: ClassInfra, Detail: "googleapi: Error 412: conditionNotMet"},
+		{Classification: ClassInfra, Detail: "googleapi: Error 412: conditionNotMet"},
+		{Classification: ClassInfra, Detail: "googleapi: Error 412: conditionNotMet"},
+	}
+	waitDone(t, runSched(t, s))
+	if st.Jobs["j1"].Status != StatusFailedInfra || len(st.Jobs["j1"].Attempts) != capInfra {
+		t.Fatalf("want failed_infra after %d attempts: %s / %d", capInfra, st.Jobs["j1"].Status, len(st.Jobs["j1"].Attempts))
+	}
+}
+
+func TestInfraPassesOnRetry(t *testing.T) {
+	jobs := []Job{job("j1", 16)}
+	s, ex, _, st := schedFixture(t, schedConfig, jobs)
+	ex.script["j1"] = []Result{{Classification: ClassInfra}, {Classification: ClassPass}}
+	waitDone(t, runSched(t, s))
+	if st.Jobs["j1"].Status != StatusPassed || len(st.Jobs["j1"].Attempts) != 2 {
+		t.Fatalf("want passed after 2 attempts: %+v", st.Jobs["j1"])
+	}
+}
+
 func TestPauseFileBlocksAdmission(t *testing.T) {
 	jobs := []Job{job("j1", 16)}
 	s, _, clk, st := schedFixture(t, schedConfig, jobs)

@@ -27,6 +27,7 @@ const (
 	capQuota        = 4
 	capTimeout      = 2
 	capError        = 2
+	capInfra        = 3 // Google API errors (412 fingerprint races, 503/502) usually clear on retry
 	cooldownBase    = 120 * time.Second
 	quotaPenaltyDur = 10 * time.Minute
 	idleTick        = 5 * time.Second
@@ -357,6 +358,8 @@ func (s *Scheduler) handleCompletion(c completion) {
 		rec.Status = requeueOr(ClassQuota, capQuota)
 	case ClassTimeout:
 		rec.Status = requeueOr(ClassTimeout, capTimeout)
+	case ClassInfra:
+		rec.Status = requeueOr(ClassInfra, capInfra)
 	default:
 		rec.Status = requeueOr(ClassError, capError)
 	}
