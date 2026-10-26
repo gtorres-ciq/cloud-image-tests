@@ -32,7 +32,6 @@ func TestEmptyTest(t *testing.T) {
 		t.Fatalf("couldn't get ssh public key from metadata")
 	}
 	t.Logf("ssh target boot succesfully at %d", time.Now().UnixNano())
-	time.Sleep(60 * time.Second)
 }
 
 // TestSSHChangeKey test that given a user and a new key, guest agent will
@@ -120,7 +119,16 @@ func TestSSHChangeKey(t *testing.T) {
 	// Wait for the metadata to be updated and guest-agent to actuate and update
 	// the user's key.
 	t.Logf("waiting for metadata to be updated and guest-agent to actuate and update the user's key")
-	time.Sleep(60 * time.Second)
+	if err := pollUntil(pollDeadline, pollInterval, "new key actuation", func() error {
+		probe, err := utils.CreateClient(user3, fmt.Sprintf("%s:22", vmname), user4PemBytes)
+		if err != nil {
+			return err
+		}
+		probe.Close()
+		return nil
+	}); err != nil {
+		t.Fatalf("user %s failed ssh to target host with new key, %s, err %v", user3, vmname, err)
+	}
 
 	// Success case, with user3 and user4PemBytes (it should succeed).
 	t.Logf("connect to remote host at %d, with valid key, should succeed", time.Now().UnixNano())
@@ -153,19 +161,27 @@ func TestSSHInstanceKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to download private key: %v", err)
 	}
-	time.Sleep(60 * time.Second)
+	var client *ssh.Client
 	t.Logf("connect to remote host at %d", time.Now().UnixNano())
-	client, err := utils.CreateClient(user, fmt.Sprintf("%s:22", vmname), pembytes)
-	if err != nil {
+	if err := pollUntil(pollDeadline, pollInterval, "guest agent ssh-key actuation", func() error {
+		c, err := utils.CreateClient(user, fmt.Sprintf("%s:22", vmname), pembytes)
+		if err != nil {
+			return err
+		}
+		if err := checkLocalUser(c, user); err != nil {
+			c.Close()
+			return err
+		}
+		if err := checkSudoGroup(c, user); err != nil {
+			c.Close()
+			return err
+		}
+		client = c
+		return nil
+	}); err != nil {
 		t.Fatalf("user %s failed ssh to target host, %s, err %v", user, vmname, err)
 	}
-	if err := checkLocalUser(client, user); err != nil {
-		t.Fatalf("failed to check local user: %v", err)
-	}
 
-	if err := checkSudoGroup(client, user); err != nil {
-		t.Fatalf("failed to check sudo group: %v", err)
-	}
 	if err := client.Close(); err != nil {
 		t.Logf("failed to close client: %v", err)
 	}
@@ -192,7 +208,6 @@ func TestSwitchDefaultConfig(t *testing.T) {
 		t.Fatalf("failed to write instance configs: %v", err)
 	}
 	utils.RestartAgent(utils.Context(t))
-	time.Sleep(60 * time.Second)
 }
 
 func TestDeleteLocalUser(t *testing.T) {
@@ -205,11 +220,16 @@ func TestDeleteLocalUser(t *testing.T) {
 		t.Fatalf("failed to download private key: %v", err)
 	}
 
-	time.Sleep(60 * time.Second)
+	var client *ssh.Client
 	t.Logf("connect to remote host at %d", time.Now().UnixNano())
-
-	client, err := utils.CreateClient(user, fmt.Sprintf("%s:22", vmname), pembytes)
-	if err != nil {
+	if err := pollUntil(pollDeadline, pollInterval, "guest agent ssh-key actuation", func() error {
+		c, err := utils.CreateClient(user, fmt.Sprintf("%s:22", vmname), pembytes)
+		if err != nil {
+			return err
+		}
+		client = c
+		return nil
+	}); err != nil {
 		t.Fatalf("user %s failed ssh to target host, %s, err %v", user, vmname, err)
 	}
 	t.Cleanup(func() {
@@ -240,13 +260,17 @@ func TestDeleteLocalUser(t *testing.T) {
 	}
 
 	utils.SetInstanceMetadata(t, vmname, metadata)
-	time.Sleep(60 * time.Second)
+	if err := pollUntil(pollDeadline, pollInterval, "user2 deprovisioning", func() error {
+		if err := checkLocalUser(client, user2); err != nil {
+			return nil // user gone: converged
+		}
+		return fmt.Errorf("user %s still exists on target host", user2)
+	}); err != nil {
+		t.Fatalf("user %s was never removed from target host, %s, err: %v", user2, vmname, err)
+	}
 
 	if err := checkSudoGroup(client, user2); err == nil {
 		t.Fatalf("user %s still exists in sudo group on target host, %s", user2, vmname)
-	}
-	if err := checkLocalUser(client, user2); err == nil {
-		t.Fatalf("user %s still exists on target host, %s, err: %v", user2, vmname, err)
 	}
 }
 
@@ -260,10 +284,16 @@ func TestDeleteUserDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to download private key: %v", err)
 	}
-	time.Sleep(60 * time.Second)
+	var client *ssh.Client
 	t.Logf("connect to remote host at %d", time.Now().UnixNano())
-	client, err := utils.CreateClient(user2, fmt.Sprintf("%s:22", vmname), pembytes)
-	if err != nil {
+	if err := pollUntil(pollDeadline, pollInterval, "guest agent ssh-key actuation", func() error {
+		c, err := utils.CreateClient(user2, fmt.Sprintf("%s:22", vmname), pembytes)
+		if err != nil {
+			return err
+		}
+		client = c
+		return nil
+	}); err != nil {
 		t.Fatalf("user %s failed ssh to target host, %s, err %v", user2, vmname, err)
 	}
 	t.Cleanup(func() {
@@ -293,16 +323,15 @@ func TestDeleteUserDefault(t *testing.T) {
 	}
 
 	utils.SetInstanceMetadata(t, vmname, metadata)
-	time.Sleep(60 * time.Second)
-
-	client2, err := utils.CreateClient(user2, fmt.Sprintf("%s:22", vmname), pembytes)
-	t.Cleanup(func() {
-		if client2 != nil {
-			client2.Close()
+	if err := pollUntil(pollDeadline, pollInterval, "user2 key revocation", func() error {
+		probe, err := utils.CreateClient(user2, fmt.Sprintf("%s:22", vmname), pembytes)
+		if err != nil {
+			return nil // ssh rejected: converged
 		}
-	})
-	if err == nil {
-		t.Fatalf("user %s successfully ssh to target host, %s", user2, vmname)
+		probe.Close()
+		return fmt.Errorf("user %s still able to ssh to target host", user2)
+	}); err != nil {
+		t.Fatalf("user %s could still ssh to target host, %s", user2, vmname)
 	}
 
 	if err := checkSudoGroup(client, user2); err == nil {
