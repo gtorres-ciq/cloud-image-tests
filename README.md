@@ -111,6 +111,34 @@ docker run -v /path/to/local/creds:/creds \
 The manager will exit with 0 if all tests completed successfully, 1 otherwise.
 JUnit format XML will also be output.
 
+#### citrun credential modes ####
+
+`citrun` picks the credential source automatically:
+
+- If `~/.config/gcloud/application_default_credentials.json` exists, the
+  manager container is given the usual ADC volume mount (developer-laptop
+  behavior, unchanged).
+- Otherwise it runs the container with `--network host` and no credential
+  mount so the manager authenticates through the GCE **metadata server**
+  (use on an instance whose service account can create the test resources).
+  The host network is required because the metadata server is link-local and
+  unreachable from the container bridge.
+
+#### Kernel-under-test matrix ####
+
+`citrun-kernel.yaml` defines a trimmed kernel-validation matrix (VM + metal,
+both arches, all 12 images per arch) for use with a startup script that
+updates test VMs to the kernel from the `ciq-sigcloud-next-testing` repos
+(see `gce-kernel-tests/startup.sh` in scn-sb-sync-and-test):
+
+```shell
+citrun run -config citrun-kernel.yaml \
+    -custom_startup_script /path/to/gce-kernel-tests/startup.sh
+```
+
+Slice it with `-configs kernel-x86-vm` (also: `kernel-arm-vm`,
+`kernel-x86-metal`, `kernel-arm-metal`).
+
 ## Writing tests ##
 
 Tests are organized into go packages in the `test_suites` directory and are

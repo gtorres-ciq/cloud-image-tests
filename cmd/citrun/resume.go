@@ -125,6 +125,7 @@ func cmdResume(args []string, onlyFailed bool) int {
 	fs := flag.NewFlagSet("resume", flag.ExitOnError)
 	refresh := fs.Bool("refresh-config", false, "refresh queued/failed job zones and CPU accounting from the run config (stop the original runner first)")
 	dryRun := fs.Bool("dry-run", false, "print the requeue plan and exit without touching state")
+	customStartup := fs.String("custom_startup_script", "", "path to a startup script run on each test VM before its tests (copied into every job dir)")
 	fs.Parse(args)
 	if fs.NArg() != 1 {
 		log.Print("usage: citrun resume|rerun-failed [--refresh-config] [--dry-run] <run-dir>")
@@ -149,13 +150,7 @@ func cmdResume(args []string, onlyFailed bool) int {
 		printResumeDryRun(dir, requeue, attach, infra, orphans, onlyFailed)
 		return 0
 	}
-	home, err := userHome()
-	if err != nil {
-		log.Print(err)
-		return 2
-	}
-	ex := &DockerExecutor{Project: cfg.Project, RunID: st.RunID,
-		CredsDir: filepath.Join(home, ".config", "gcloud"), Image: cfg.DockerImage}
+	ex := newDockerExecutor(cfg.Project, st.RunID, cfg.DockerImage, *customStartup)
 	if *refresh {
 		n, backup, err := refreshRunConfig(dir, st, cfg)
 		if err != nil {
@@ -171,5 +166,5 @@ func cmdResume(args []string, onlyFailed bool) int {
 		log.Print(err)
 		return 2
 	}
-	return executeRun(cfg, st, dir)
+	return executeRun(cfg, st, dir, *customStartup)
 }

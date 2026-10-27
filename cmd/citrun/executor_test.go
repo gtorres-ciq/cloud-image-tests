@@ -57,6 +57,98 @@ func TestDockerArgsUseAbsoluteJobDirectory(t *testing.T) {
 	}
 }
 
+func TestBuildDockerArgsMetadataCreds(t *testing.T) {
+	// Empty CredsDir = metadata-server auth: no creds mount/env, host network
+	// so the link-local metadata server is reachable.
+	d := &DockerExecutor{Project: "p", RunID: "r1", Image: "cloud-image-tests"}
+	job := Job{ID: "j1", Suite: "ssh", Timeout: Duration(time.Minute)}
+	got := strings.Join(buildDockerArgs(d, job, "z", "/d"), " ")
+	if !strings.Contains(got, "--network host") {
+		t.Errorf("metadata mode must add --network host, got: %s", got)
+	}
+	for _, unwanted := range []string{"/creds", "GOOGLE_APPLICATION_CREDENTIALS"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("metadata mode must not contain %q, got: %s", unwanted, got)
+		}
+	}
+}
+
+func TestBuildDockerArgsCustomStartupScript(t *testing.T) {
+	d := &DockerExecutor{Project: "p", RunID: "r1", CredsDir: "/home/u/.config/gcloud",
+		Image: "cloud-image-tests", CustomStartupScript: "/somewhere/startup.sh"}
+	job := Job{ID: "j1", Suite: "ssh", Timeout: Duration(time.Minute)}
+	got := strings.Join(buildDockerArgs(d, job, "z", "/d"), " ")
+	if !strings.Contains(got, "-custom_startup_script /curpath/startup.sh") {
+		t.Errorf("custom startup script not passed to manager, got: %s", got)
+	}
+
+	d.CustomStartupScript = ""
+	if s := strings.Join(buildDockerArgs(d, job, "z", "/d"), " "); strings.Contains(s, "custom_startup_script") {
+		t.Errorf("no startup script must omit the manager flag, got: %s", s)
+	}
+}
+
+func TestNewDockerExecutorADCDetection(t *testing.T) {
+	// Fake HOME with an ADC file => ADC mode.
+	home := t.TempDir()
+	gcloudDir := filepath.Join(home, ".config", "gcloud")
+	if err := os.MkdirAll(gcloudDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	userHomeOrig := userHome
+	userHome = func() (string, error) { return home, nil }
+	defer func() { userHome = userHomeOrig }()
+
+	if err := os.WriteFile(filepath.Join(gcloudDir, "application_default_credentials.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := newDockerExecutor("p", "r1", "img", "")
+	if d.CredsDir != gcloudDir {
+		t.Errorf("ADC present: want CredsDir %q, got %q", gcloudDir, d.CredsDir)
+	}
+
+	// No ADC file => metadata mode (empty CredsDir).
+	if err := os.Remove(filepath.Join(gcloudDir, "application_default_credentials.json")); err != nil {
+		t.Fatal(err)
+	}
+	d = newDockerExecutor("p", "r1", "img", "/startup.sh")
+	if d.CredsDir != "" {
+		t.Errorf("no ADC: want empty CredsDir, got %q", d.CredsDir)
+	}
+	if d.CustomStartupScript != "/startup.sh" {
+		t.Errorf("CustomStartupScript not propagated, got %q", d.CustomStartupScript)
+	}
+}
+
+func TestStageStartupScript(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "orig.sh")
+	script := "#!/bin/bash\ndnf config-manager --set-enabled ciq-sigcloud-next-testing\n"
+	if err := os.WriteFile(src, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	jobDir := filepath.Join(dir, "job")
+	if err := os.MkdirAll(jobDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := stageStartupScript(src, jobDir); err != nil {
+		t.Fatal(err)
+	}
+	staged, err := os.ReadFile(filepath.Join(jobDir, "startup.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(staged) != script {
+		t.Errorf("staged script content mismatch: %q", string(staged))
+	}
+
+	// Missing source errors clearly.
+	if err := stageStartupScript(filepath.Join(dir, "nope.sh"), jobDir); err == nil {
+		t.Error("staging a missing script must fail")
+	}
+}
+
 func writeJobDir(t *testing.T, junit, logText string) string {
 	t.Helper()
 	dir := t.TempDir()

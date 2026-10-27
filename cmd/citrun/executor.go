@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +35,30 @@ type Executor interface {
 
 type DockerExecutor struct {
 	Project, RunID, CredsDir, Image string
+	// CustomStartupScript is a path to a file copied into each job dir and
+	// passed to the manager via -custom_startup_script (e.g. the kernel-test
+	// startup script that updates test VMs to the kernel-under-test).
+	CustomStartupScript string
+}
+
+// newDockerExecutor returns an executor with CredsDir set when user ADC
+// credentials exist. With no ADC file, CredsDir is left empty and
+// buildDockerArgs omits the creds mount so the manager authenticates via the
+// GCE metadata server (requires running on an instance with a service
+// account that can create the test resources).
+func newDockerExecutor(project, runID, image, customStartup string) *DockerExecutor {
+	home, err := userHome()
+	if err == nil {
+		adc := filepath.Join(home, ".config", "gcloud", "application_default_credentials.json")
+		if _, statErr := os.Stat(adc); statErr == nil {
+			return &DockerExecutor{Project: project, RunID: runID,
+				CredsDir: filepath.Dir(adc), Image: image, CustomStartupScript: customStartup}
+		}
+	}
+	log.Print("no ADC credentials found; using GCE metadata server auth " +
+		"(requires an instance service account with compute+storage access)")
+	return &DockerExecutor{Project: project, RunID: runID, Image: image,
+		CustomStartupScript: customStartup}
 }
 
 func containerName(runID, jobID string) string {
@@ -46,8 +71,6 @@ func buildDockerArgs(d *DockerExecutor, job Job, zone, jobDir string) []string {
 	}
 	args := []string{"run", "--rm", "--name", containerName(d.RunID, job.ID),
 		"-v", jobDir + ":/curpath:z",
-		"-v", d.CredsDir + ":/creds:z",
-		"-e", "GOOGLE_APPLICATION_CREDENTIALS=/creds/application_default_credentials.json",
 		// Serial-log policy inside manager: CIT_SERIAL_ONCE=1 (default) does
 		// one serial capture+upload per VM at VM stop instead of daisy's
 		// every-3s full-log rewrite (measured ~83 GB/hour upload at 30
@@ -55,16 +78,28 @@ func buildDockerArgs(d *DockerExecutor, job Job, zone, jobDir string) []string {
 		// point ARTIFACTS at the jobDir so the serial log lands next to
 		// junit.xml on the host.
 		"-e", "CIT_SERIAL_ONCE=" + os.Getenv("CIT_SERIAL_ONCE"),
-		"-e", "ARTIFACTS=/curpath",
+		"-e", "ARTIFACTS=/curpath"}
+	if d.CredsDir != "" {
+		// User ADC credentials mounted from the host.
+		args = append(args,
+			"-v", d.CredsDir+":/creds:z",
+			"-e", "GOOGLE_APPLICATION_CREDENTIALS=/creds/application_default_credentials.json")
+	} else {
+		// Metadata-server auth: 169.254.169.254 is link-local on the host
+		// network and unreachable from podman's bridge, so join it. The
+		// manager container opens no listening ports.
+		args = append(args, "--network", "host")
+	}
+	args = append(args,
 		d.Image,
 		"--project", d.Project,
-		"--filter", "^(" + job.Suite + ")$",
+		"--filter", "^("+job.Suite+")$",
 		"--zones", zone,
 		"--images", job.Image,
 		"--parallel_count", "1",
 		"--out_path", "/curpath/junit.xml",
 		"--timeout", time.Duration(job.Timeout).String(),
-	}
+	)
 	switch {
 	case job.Suite == "shapevalidation":
 		args = append(args, "-shapevalidation_test_filter", "^"+job.Family+"$")
@@ -72,6 +107,9 @@ func buildDockerArgs(d *DockerExecutor, job Job, zone, jobDir string) []string {
 		args = append(args, "-arm64_shape="+job.Shape)
 	default:
 		args = append(args, "-x86_shape="+job.Shape)
+	}
+	if d.CustomStartupScript != "" {
+		args = append(args, "-custom_startup_script", "/curpath/startup.sh")
 	}
 	return args
 }
@@ -155,12 +193,32 @@ func classifyResult(runErr error, jobDir string, timedOut bool) Result {
 	return Result{ClassError, detail}
 }
 
+// stageStartupScript copies the custom startup script into the mounted job
+// dir so the manager can read it at /curpath/startup.sh. Re-copied on every
+// Run, so requeued jobs after a resume always get the current script.
+func stageStartupScript(path, jobDir string) error {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read custom startup script: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(jobDir, "startup.sh"), src, 0o755); err != nil {
+		return fmt.Errorf("stage custom startup script: %w", err)
+	}
+	return nil
+}
+
 func (d *DockerExecutor) Run(ctx context.Context, job Job, zone, jobDir string) Result {
 	logf, err := os.Create(filepath.Join(jobDir, "job.log"))
 	if err != nil {
 		return Result{ClassError, err.Error()}
 	}
 	defer logf.Close()
+
+	if d.CustomStartupScript != "" {
+		if err := stageStartupScript(d.CustomStartupScript, jobDir); err != nil {
+			return Result{ClassError, err.Error()}
+		}
+	}
 
 	hard := time.Duration(job.Timeout) + hardTimeoutSlack
 	cctx, cancel := context.WithTimeout(ctx, hard)

@@ -32,6 +32,7 @@ func cmdRun(args []string) int {
 	runDir := fs.String("run-dir", "", "run directory (default runs/<timestamp>)")
 	dryRun := fs.Bool("dry-run", false, "print the expanded plan and exit")
 	tier := fs.String("tier", "all", "matrix slice: all (default), or a tier name from citrun.yaml tiers: (1=mandate, 2=flag-only)")
+	customStartup := fs.String("custom_startup_script", "", "path to a startup script run on each test VM before its tests (copied into every job dir)")
 	fs.Parse(args)
 
 	cfg, err := LoadConfig(*configPath)
@@ -97,7 +98,7 @@ func cmdRun(args []string) int {
 		log.Print(err)
 		return 2
 	}
-	code := executeRun(cfg, st, dir)
+	code := executeRun(cfg, st, dir, *customStartup)
 	return code
 }
 
@@ -110,19 +111,12 @@ func runDirFresh(dir string) error {
 	return nil
 }
 
-func userHome() (string, error) {
-	return os.UserHomeDir()
-}
+// userHome is a variable so tests can redirect HOME-based lookups.
+var userHome = os.UserHomeDir
 
-func executeRun(cfg *Config, st *RunState, dir string) int {
+func executeRun(cfg *Config, st *RunState, dir, customStartup string) int {
 	start := time.Now()
-	home, err := userHome()
-	if err != nil {
-		log.Print(err)
-		return 2
-	}
-	ex := &DockerExecutor{Project: cfg.Project, RunID: st.RunID,
-		CredsDir: filepath.Join(home, ".config", "gcloud"), Image: cfg.DockerImage}
+	ex := newDockerExecutor(cfg.Project, st.RunID, cfg.DockerImage, customStartup)
 	sched := NewScheduler(cfg, st, ex, realClock{}, dir)
 
 	admitCtx, stopAdmit := context.WithCancel(context.Background())
@@ -152,7 +146,7 @@ func executeRun(cfg *Config, st *RunState, dir string) int {
 		}
 	}()
 
-	err = sched.Run(admitCtx, jobCtx)
+	err := sched.Run(admitCtx, jobCtx)
 	close(stopTicker)
 	signal.Stop(sig)
 	if err != nil {
