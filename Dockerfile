@@ -21,7 +21,12 @@ RUN mkdir /out
 ENV GOOS=linux
 ENV GO111MODULE=on
 
-RUN ./local_build.sh -o /out
+ARG CIT_ARCHES=all
+ENV CIT_ARCHES=${CIT_ARCHES}
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    ./local_build.sh -o /out
 
 FROM debian:bookworm
 RUN apt-get update

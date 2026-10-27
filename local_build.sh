@@ -25,6 +25,12 @@ imagetestroot=.
 # processes (compile, vet, link), so K*3 <= cores-1. Pass -j N to override.
 jobs=0
 
+arches=${CIT_ARCHES:-all}
+case $arches in
+  all|linux) ;;
+  *) echo "invalid CIT_ARCHES '$arches' (want: all|linux)" >&2; exit 1 ;;
+esac
+
 
 while getopts "o:s:i:j:" arg; do
   case $arg in
@@ -51,9 +57,11 @@ cd $imagetestroot
 go mod download
 go build -o $outpath/wrapper.amd64 ./cmd/wrapper/main.go
 GOARCH=arm64 go build -o $outpath/wrapper.arm64 ./cmd/wrapper/main.go || exit 1
-GOOS=windows GOARCH=amd64 go build -o $outpath/wrapp64.exe ./cmd/wrapper/main.go || exit 1
-GOOS=windows GOARCH=386 go build -o $outpath/wrapp32.exe ./cmd/wrapper/main.go || exit 1
 go build -o $outpath/manager ./cmd/manager/main.go || exit 1
+if [ "$arches" = "all" ]; then
+  GOOS=windows GOARCH=amd64 go build -o $outpath/wrapp64.exe ./cmd/wrapper/main.go || exit 1
+  GOOS=windows GOARCH=386 go build -o $outpath/wrapp32.exe ./cmd/wrapper/main.go || exit 1
+fi
 
 
 # Build one suite (all four arch variants). Run in its own subshell so cd
@@ -69,10 +77,12 @@ build_suite() {
   mv "${suite}.test" "$outpath/${suite}.amd64.test" || return 1
   GOARCH=arm64 go test -c -tags cit || return 1
   mv "${suite}.test" "$outpath/${suite}.arm64.test" || return 1
-  GOOS=windows GOARCH=amd64 go test -c -tags cit || return 1
-  if [ -f "${suite}.test.exe" ]; then mv "${suite}.test.exe" "$outpath/${suite}64.exe" || return 1; fi
-  GOOS=windows GOARCH=386 go test -c -tags cit || return 1
-  if [ -f "${suite}.test.exe" ]; then mv "${suite}.test.exe" "$outpath/${suite}32.exe" || return 1; fi
+  if [ "$arches" = "all" ]; then
+    GOOS=windows GOARCH=amd64 go test -c -tags cit || return 1
+    if [ -f "${suite}.test.exe" ]; then mv "${suite}.test.exe" "$outpath/${suite}64.exe" || return 1; fi
+    GOOS=windows GOARCH=386 go test -c -tags cit || return 1
+    if [ -f "${suite}.test.exe" ]; then mv "${suite}.test.exe" "$outpath/${suite}32.exe" || return 1; fi
+  fi
 }
 
 abs_outpath=$(cd "$outpath" && pwd)
