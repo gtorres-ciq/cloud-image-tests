@@ -24,9 +24,11 @@ ENV GO111MODULE=on
 ARG CIT_ARCHES=all
 ENV CIT_ARCHES=${CIT_ARCHES}
 
+ARG CIT_SUITES="cvm disk guestagent hostnamevalidation hotattach imageboot licensevalidation livemigrate loadbalancer lssd metadata network packagevalidation security ssh suspendresume vmspec u4c shapevalidation"
+
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    ./local_build.sh -o /out
+    ./local_build.sh -o /out -s "$CIT_SUITES"
 
 FROM debian:bookworm
 RUN apt-get update
