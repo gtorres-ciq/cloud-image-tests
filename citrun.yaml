@@ -28,12 +28,13 @@ budgets:
     europe-west3:    {CPUS: 3000, N2_CPUS: 1500, N2D_CPUS: 1500, E2_CPUS: 600, C3_CPUS: 300, T2A_CPUS: 300, T2D_CPUS: 128, C4A_CPUS: 300}
     europe-west4:    {CPUS: 3000, C3_CPUS: 300, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 1760, C4D_CPUS: 500, N2_CPUS: 1500, N2D_CPUS: 3000, N4_CPUS: 1500, E2_CPUS: 600, T2A_CPUS: 300, T2D_CPUS: 128}
     asia-southeast1: {CPUS: 3000, C3_CPUS: 300, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, C4D_CPUS: 500, N2_CPUS: 1500, N2D_CPUS: 3000, N4_CPUS: 1500, E2_CPUS: 600, T2A_CPUS: 300, T2D_CPUS: 128}
-    us-east1:        {CPUS: 3000, C3_CPUS: 300, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, E2_CPUS: 600, T2A_CPUS: 300}
+    us-east1:        {CPUS: 3000, C3_CPUS: 1920, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, E2_CPUS: 600, T2A_CPUS: 300}
     us-east4:        {CPUS: 3000, C3_CPUS: 1920, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, T2A_CPUS: 300}
     us-west1:        {CPUS: 1500, C3_CPUS: 1920, N4_CPUS: 1500}
     # us-east5 CPUS measured 2026-10-06 via regions describe. Z4D_CPUS is the
     # per-VM-family quota (Cloud Quotas API); Z4D quota exists only in us-east5.
-    us-east5:        {CPUS: 750, C4A_CPUS: 300, Z4D_CPUS: 384}
+    # C3_CPUS 1568 granted 2026-10-30 (verified via regions describe).
+    us-east5:        {CPUS: 750, C3_CPUS: 1568, C4A_CPUS: 300, Z4D_CPUS: 384}
     # U4 quotas are zonal (CPUS-PER-VM-FAMILY-per-project-zone). Keep U4S
     # serialized until the scheduler supports zonal budgets, and use one
     # zone's measured allocation as a safe cap.
@@ -71,7 +72,10 @@ zone_sets:
   # C3_CPUS quota 1920 (76 used at verification). A live allocation probe
   # returned STOCKOUT on 2026-10-15; retain it as a fallback for later retries.
   # us-west1-a (34 stockouts) and us-east4-a (30) remain excluded.
-  metal-c3:     [us-east4-c, us-west1-b, europe-west1-b, europe-west1-c, europe-west1-d, us-east1-b, asia-southeast1-a, asia-southeast1-c, us-central1-a]
+  # us-east4-a, us-east1-c/d, us-east5-a/b added 2026-10-30 after C3_CPUS
+  # increases (1920 us-east1, 1568 us-east5; verified via regions describe +
+  # machine-types list); us-east4-a re-added by request to spread the load.
+  metal-c3:     [us-east4-c, us-east4-a, us-west1-b, europe-west1-b, europe-west1-c, europe-west1-d, us-east1-b, us-east1-c, us-east1-d, us-east5-a, us-east5-b, asia-southeast1-a, asia-southeast1-c, us-central1-a]
   # c4a-highmem-96-metal availability outside us-central1: europe-west3-a/b/c,
   # europe-west4-a/b/c, asia-northeast1-a/b, us-east4-c, us-east5-b, us-west4-a/c.
   # C4A quota is 300 in europe-west3/us-east4/us-east5, so only 1-VM suites
