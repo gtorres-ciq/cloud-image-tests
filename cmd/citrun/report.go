@@ -81,7 +81,7 @@ func attemptZones(attempts []Attempt) []string {
 // BuildReport renders the markdown report (also used as the console output)
 // and the CSV export for a run. It walks st.Order exclusively so output is
 // deterministic; any intermediate map aggregation (per-config counts,
-// stockouts by region) sorts its keys before rendering.
+// stockouts by region/shape) sorts its keys before rendering.
 func BuildReport(st *RunState, runDir string, topN int) (string, string) {
 	var md strings.Builder
 	fmt.Fprintf(&md, "# citrun report: %s\n\n", st.RunID)
@@ -219,28 +219,42 @@ func writeFlakes(md *strings.Builder, st *RunState) {
 }
 
 func writeStockouts(md *strings.Builder, st *RunState) {
-	counts := map[string]int{}
+	byRegion := map[string]int{}
+	byShape := map[string]int{}
+	byShapeRegion := map[string]int{}
 	for _, id := range st.Order {
 		rec := st.Jobs[id]
 		for _, a := range rec.Attempts {
 			if a.Result == ClassStockout {
-				counts[zoneRegion(a.Zone)]++
+				region := zoneRegion(a.Zone)
+				byRegion[region]++
+				byShape[rec.Job.Shape]++
+				byShapeRegion[rec.Job.Shape+"/"+region]++
 			}
 		}
 	}
-	regions := make([]string, 0, len(counts))
-	for r := range counts {
-		regions = append(regions, r)
-	}
-	sort.Strings(regions)
+	writeCountSection(md, "## Stockouts by Region", byRegion)
+	writeCountSection(md, "## Stockouts by Shape", byShape)
+	writeCountSection(md, "## Stockouts by Shape/Region", byShapeRegion)
+}
 
-	fmt.Fprintf(md, "## Stockouts by Region\n\n")
-	if len(regions) == 0 {
+// writeCountSection renders a stockout-count section as "- <key>: <count>"
+// lines in sorted-key order, with a "none" fallback when empty.
+func writeCountSection(md *strings.Builder, header string, counts map[string]int) {
+	keys := make([]string, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	fmt.Fprintf(md, "%s\n\n", header)
+	if len(keys) == 0 {
 		fmt.Fprintln(md, "none")
 	}
-	for _, r := range regions {
-		fmt.Fprintf(md, "- %s: %d\n", r, counts[r])
+	for _, k := range keys {
+		fmt.Fprintf(md, "- %s: %d\n", k, counts[k])
 	}
+	fmt.Fprintln(md)
 }
 
 // buildCSV renders one row per job in st.Order. encoding/csv handles

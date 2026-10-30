@@ -2,12 +2,15 @@
 package main
 
 import (
+	"encoding/xml"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jstemmer/go-junit-report/v2/junit"
 )
 
 func TestBuildDockerArgs(t *testing.T) {
@@ -206,6 +209,91 @@ func TestClassifyResult(t *testing.T) {
 			got := classifyResult(c.err, writeJobDir(t, c.junit, c.log), c.timedOut)
 			if got.Classification != c.want {
 				t.Errorf("= %q (%s), want %q", got.Classification, got.Detail, c.want)
+			}
+		})
+	}
+}
+
+func TestMarkInfraSkipped(t *testing.T) {
+	stockout := `<testsuites><testsuite tests="3" failures="2" errors="1" skipped="0">` +
+		`<testcase name="a"><failure message="" type="Failure"><![CDATA[Code: ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS]]></failure></testcase>` +
+		`<testcase name="b"><failure message="" type="Failure"><![CDATA[Code: ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS]]></failure></testcase>` +
+		`<testcase name="c"><error message="boom"><![CDATA[SERVICE UNAVAILABLE]]></error></testcase>` +
+		`</testsuite></testsuites>`
+	realFail := `<testsuites><testsuite tests="1" failures="1" errors="0">` +
+		`<testcase name="a"><failure message="assert broke"/></testcase>` +
+		`</testsuite></testsuites>`
+	timeout := `<testsuites><testsuite tests="1" failures="1" errors="0">` +
+		`<testcase name="a"><failure message="hang"/></testcase>` +
+		`</testsuite></testsuites>`
+	pass := `<testsuites><testsuite tests="1" failures="0" errors="0">` +
+		`<testcase name="a"/></testsuite></testsuites>`
+
+	cases := []struct {
+		name, junit string
+		res         Result
+		wantParse   bool   // whether the file should still parse as junit
+		wantContent string // expected substring of the rewritten file ("" = untouched)
+	}{
+		{"stockout failures become skipped", stockout,
+			Result{Classification: ClassStockout, Detail: "ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS Message: zone stockout"},
+			true, `skipped message="infra (stockout): ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS Message: zone stockout"`},
+		{"quota failures become skipped", realFail,
+			Result{Classification: ClassQuota, Detail: "QUOTA_EXCEEDED"},
+			true, `skipped message="infra (quota): QUOTA_EXCEEDED"`},
+		{"infra failures become skipped", realFail,
+			Result{Classification: ClassInfra, Detail: "googleapi: Error 412: conditionNotMet"},
+			true, `skipped message="infra (infra): googleapi: Error 412: conditionNotMet"`},
+		{"real failures untouched", realFail,
+			Result{Classification: ClassFail, Detail: ""},
+			true, `<failure message="assert broke"/>`},
+		{"timeout untouched", timeout,
+			Result{Classification: ClassTimeout, Detail: "hard timeout"},
+			true, `<failure message="hang"/>`},
+		{"error untouched", timeout,
+			Result{Classification: ClassError, Detail: "boom"},
+			true, `<failure message="hang"/>`},
+		{"pass untouched", pass,
+			Result{Classification: ClassPass, Detail: ""},
+			true, `<testcase name="a"/>`},
+		{"malformed junit left as-is", `<testsuites><testsuite><oops>`,
+			Result{Classification: ClassStockout, Detail: "x"},
+			false, `<oops>`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := writeJobDir(t, c.junit, "")
+			markInfraSkipped(dir, c.res)
+			raw, err := os.ReadFile(filepath.Join(dir, "junit.xml"))
+			if err != nil {
+				t.Fatalf("read rewritten junit: %v", err)
+			}
+			if !strings.Contains(string(raw), c.wantContent) {
+				t.Errorf("rewritten junit missing %q:\n%s", c.wantContent, raw)
+			}
+			if !c.wantParse {
+				return
+			}
+			var suites junit.Testsuites
+			if err := xml.Unmarshal(raw, &suites); err != nil {
+				t.Fatalf("rewritten junit does not parse: %v\n%s", err, raw)
+			}
+			for _, suite := range suites.Suites {
+				wantSkipped := 0
+				for _, tc := range suite.Testcases {
+					if tc.Skipped != nil {
+						wantSkipped++
+					}
+					if tc.Failure != nil && c.res.Classification != ClassFail && c.res.Classification != ClassTimeout && c.res.Classification != ClassError {
+						t.Errorf("failure survived rewrite: %s", tc.Name)
+					}
+				}
+				if suite.Skipped != wantSkipped {
+					t.Errorf("suite skipped count = %d, want %d", suite.Skipped, wantSkipped)
+				}
+				if suite.Failures < 0 || suite.Errors < 0 {
+					t.Errorf("suite counts negative: failures=%d errors=%d", suite.Failures, suite.Errors)
+				}
 			}
 		})
 	}

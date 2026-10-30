@@ -46,6 +46,8 @@ func TestBuildReport(t *testing.T) {
 		"nic count wrong",              // junit message surfaced for real failure
 		"ZONE_RESOURCE_POOL_EXHAUSTED", // infra detail
 		"europe-west1: 1",              // stockout by region
+		"shp: 2",                       // stockout by shape
+		"shp/europe-west1: 1",          // stockout by shape/region combo
 		"ssh_1",                        // flake listed (passed after stockout)
 	} {
 		if !strings.Contains(md, want) {

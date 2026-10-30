@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"time"
+
+	"github.com/jstemmer/go-junit-report/v2/junit"
 )
 
 const (
@@ -193,6 +196,82 @@ func classifyResult(runErr error, jobDir string, timedOut bool) Result {
 	return Result{ClassError, detail}
 }
 
+// infraClasses are the classifications whose junit.xml failures are not
+// genuine test failures: the job died before/while the VM ran, so every
+// testcase failed with the same API error. Their junit failures are rewritten
+// to skipped so junit consumers (Jenkins) count only real failures.
+var infraClasses = map[string]bool{
+	ClassStockout: true,
+	ClassQuota:    true,
+	ClassInfra:    true,
+}
+
+// markInfraSkipped rewrites jobDir/junit.xml for infra-classified jobs,
+// converting each <failure> to <skipped message="infra (<class>): <detail>">
+// and adjusting the suite counts. Best-effort: any error logs and leaves the
+// original file untouched — the classification in state.json/report.md
+// remains the authoritative verdict regardless.
+func markInfraSkipped(jobDir string, res Result) {
+	if !infraClasses[res.Classification] {
+		return
+	}
+	path := filepath.Join(jobDir, "junit.xml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return // no junit produced; nothing to rewrite
+	}
+	var suites junit.Testsuites
+	if err := xml.Unmarshal(raw, &suites); err != nil {
+		log.Printf("infra junit rewrite: parse %s: %v", path, err)
+		return
+	}
+	msg := "infra (" + res.Classification + ")"
+	if res.Detail != "" {
+		// Keep the snippet short; the full detail lives in state.json.
+		if len(res.Detail) > 200 {
+			res.Detail = res.Detail[:200]
+		}
+		msg += ": " + res.Detail
+	}
+	totalFailures, totalErrors := 0, 0
+	for si := range suites.Suites {
+		suite := &suites.Suites[si]
+		failures, errors := 0, 0
+		for i := range suite.Testcases {
+			tc := &suite.Testcases[i]
+			switch {
+			case tc.Failure != nil:
+				tc.Skipped = &junit.Result{Message: msg, Type: tc.Failure.Type}
+				tc.Failure = nil
+				failures++
+			case tc.Error != nil:
+				tc.Skipped = &junit.Result{Message: msg, Type: tc.Error.Type}
+				tc.Error = nil
+				errors++
+			}
+		}
+		suite.Failures -= failures
+		suite.Errors -= errors
+		suite.Skipped += failures + errors
+		totalFailures += failures
+		totalErrors += errors
+	}
+	if totalFailures+totalErrors == 0 {
+		return
+	}
+	suites.Failures -= totalFailures
+	suites.Errors -= totalErrors
+	suites.Skipped += totalFailures + totalErrors
+	out, err := xml.MarshalIndent(&suites, "", "\t")
+	if err != nil {
+		log.Printf("infra junit rewrite: marshal %s: %v", path, err)
+		return
+	}
+	if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
+		log.Printf("infra junit rewrite: write %s: %v", path, err)
+	}
+}
+
 // stageStartupScript copies the custom startup script into the mounted job
 // dir so the manager can read it at /curpath/startup.sh. Re-copied on every
 // Run, so requeued jobs after a resume always get the current script.
@@ -242,14 +321,18 @@ func (d *DockerExecutor) Run(ctx context.Context, job Job, zone, jobDir string) 
 		exec.Command("docker", "kill", containerName(d.RunID, job.ID)).Run()
 		runErr = <-waitErr
 	}
-	return classifyResult(runErr, jobDir, timedOut)
+	res := classifyResult(runErr, jobDir, timedOut)
+	markInfraSkipped(jobDir, res)
+	return res
 }
 
 // Attach re-joins a container that survived an orchestrator crash: block
 // until it exits, then classify its artifacts.
 func (d *DockerExecutor) Attach(job Job, jobDir string) Result {
 	exec.Command("docker", "wait", containerName(d.RunID, job.ID)).Run()
-	return classifyResult(nil, jobDir, false)
+	res := classifyResult(nil, jobDir, false)
+	markInfraSkipped(jobDir, res)
+	return res
 }
 
 func (d *DockerExecutor) ContainerExists(jobID string) bool {

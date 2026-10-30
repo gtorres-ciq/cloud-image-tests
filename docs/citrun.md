@@ -44,7 +44,9 @@ runs/20260810-120000/
   report.csv         same data as report.md, one row per job
   jobs/<job-id>/
     job.log          combined stdout+stderr of the docker container
-    junit.xml         test manager's JUnit output (classification reads this first, job.log as fallback)
+    junit.xml         test manager's JUnit output (classification reads this first, job.log as fallback);
+                      for infra-classified jobs (stockout/quota/infra) failures are rewritten to
+                      <skipped message="infra (...)"> so JUnit consumers count only real failures
 ```
 
 ## Subcommands
