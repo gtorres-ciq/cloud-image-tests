@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -93,12 +94,54 @@ func eta(st *RunState) time.Duration {
 	return (sum / time.Duration(running)).Round(time.Second)
 }
 
+// renderExcludedZones appends the excluded-zone audit: unique shape×zone
+// placements in the run that the scheduler silently skips because the zone's
+// region can never fit the shape under the configured budgets (candidates for
+// zone_set pruning or a family-budget increase). Busy-but-feasible zones are
+// never listed — the section reports configured infeasibility only.
+func renderExcludedZones(b *strings.Builder, cfg *Config, st *RunState) {
+	if cfg == nil {
+		return
+	}
+	excl, zeroFit := excludedZones(cfg, st)
+	fmt.Fprintln(b, "excluded zones (never budget-feasible; skipped by sweeps):")
+	if len(excl) == 0 {
+		fmt.Fprintln(b, "  none")
+	}
+	const shown = 10
+	for i, e := range excl {
+		if i == shown {
+			fmt.Fprintf(b, "  ...and %d more\n", len(excl)-shown)
+			break
+		}
+		keys := make([]string, 0, len(e.Usable))
+		for k := range e.Usable {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys)+1)
+		for _, k := range keys {
+			parts = append(parts, fmt.Sprintf("%s=%d", k, e.Usable[k]))
+		}
+		if e.Missing != "" {
+			parts = append(parts, e.Missing+" missing")
+		}
+		fmt.Fprintf(b, "  %s %s: needs %d vCPU; usable %s\n", e.Shape, e.Zone, e.CPUCost, strings.Join(parts, ", "))
+	}
+	if zeroFit > 0 {
+		fmt.Fprintf(b, "  WARNING: %d job(s) have no feasible zone at all\n", zeroFit)
+	}
+	fmt.Fprintln(b)
+}
+
 // RenderStatus renders the full multi-line status view for a run: counts by
 // job status, per-region running-job/CPU occupancy, active cooldowns with
-// remaining seconds, and a rough ETA. Everything is derived from st alone —
-// no scheduler internals are consulted — so it renders identically whether
-// st came from a live run's state.json or a resumed/finished one.
-func RenderStatus(st *RunState, now time.Time) string {
+// remaining seconds, the excluded-zone audit (cfg is required for that
+// section; nil skips it), and a rough ETA. Everything is derived from st and
+// cfg alone — no scheduler internals are consulted — so it renders
+// identically whether st came from a live run's state.json or a
+// resumed/finished one.
+func RenderStatus(cfg *Config, st *RunState, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "run %s\n\n", st.RunID)
 
@@ -124,6 +167,8 @@ func RenderStatus(st *RunState, now time.Time) string {
 	}
 	fmt.Fprintln(&b)
 
+	renderExcludedZones(&b, cfg, st)
+
 	fmt.Fprintf(&b, "ETA ~%s\n", eta(st))
 	return b.String()
 }
@@ -146,9 +191,11 @@ func RenderTicker(st *RunState, now time.Time) string {
 
 // cmdStatus implements `citrun status [-watch] <run-dir>`: a one-shot print
 // of RenderStatus, or with -watch a screen-clearing refresh every 5s. It
-// only ever reads state.json (via LoadState) — the same file a live
-// scheduler process persists to after every job transition — so it's safe
-// to run alongside `citrun run` in another terminal.
+// reads state.json (via LoadState) — the same file a live scheduler process
+// persists to after every job transition — plus the run's saved citrun.yaml
+// for the excluded-zone audit, so it's safe to run alongside `citrun run` in
+// another terminal. Run dirs without a readable citrun.yaml (old runs) skip
+// that section.
 func cmdStatus(args []string) int {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	watch := fs.Bool("watch", false, "clear the screen and refresh every 5s")
@@ -159,6 +206,11 @@ func cmdStatus(args []string) int {
 	}
 	dir := fs.Arg(0)
 
+	cfg, err := LoadConfig(filepath.Join(dir, "citrun.yaml"))
+	if err != nil {
+		cfg = nil
+	}
+
 	for {
 		st, err := LoadState(dir)
 		if err != nil {
@@ -168,7 +220,7 @@ func cmdStatus(args []string) int {
 		if *watch {
 			fmt.Print("\033[2J\033[H")
 		}
-		fmt.Println(RenderStatus(st, time.Now()))
+		fmt.Println(RenderStatus(cfg, st, time.Now()))
 		if !*watch {
 			return 0
 		}

@@ -50,6 +50,71 @@ func eligibleRegions(job Job) []string {
 	return regions
 }
 
+// ExcludedZone describes one shape×zone placement the scheduler silently
+// skips: the zone's region can never fit the job's CPUCost under the
+// configured budgets (mirrors fitsConfiguredBudget — live occupancy and quota
+// penalties are ignored, only configured feasibility counts). Such zones are
+// candidates for removal from their zone_set, or for a budget increase on the
+// family key in that region.
+type ExcludedZone struct {
+	Shape     string
+	BudgetKey string
+	CPUCost   int
+	Zone      string
+	Region    string
+	Usable    map[string]int // region's usable budget (limit × safety) per key considered
+	Missing   string         // family key absent from the region's budget row, "" if present
+}
+
+// excludedZones reports the unique shape×zone placements across a run's jobs
+// that the scheduler excludes from every sweep, plus the count of jobs with
+// no feasible zone at all (validatePlaceable gates runs so this should stay
+// zero; it is reported defensively for states built before that gate).
+func excludedZones(cfg *Config, st *RunState) (excl []ExcludedZone, zeroFit int) {
+	seen := map[string]bool{}
+	for _, id := range st.Order {
+		rec := st.Jobs[id]
+		if rec == nil || rec.Job.Quarantined != "" {
+			continue
+		}
+		j := rec.Job
+		feasible := 0
+		for _, z := range j.Zones {
+			r := zoneRegion(z)
+			if regionUsable(cfg, j, r) >= j.CPUCost {
+				feasible++
+				continue
+			}
+			key := j.Shape + "|" + z
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			e := ExcludedZone{
+				Shape: j.Shape, BudgetKey: j.BudgetKey, CPUCost: j.CPUCost,
+				Zone: z, Region: r, Usable: map[string]int{},
+			}
+			for _, k := range budgetKeysFor(cfg, j, r) {
+				e.Usable[k] = int(float64(cfg.Budgets.Regions[r][k]) * cfg.SafetyFactor)
+			}
+			if _, ok := cfg.Budgets.Regions[r][j.BudgetKey]; !ok && j.BudgetKey != "CPUS" {
+				e.Missing = j.BudgetKey
+			}
+			excl = append(excl, e)
+		}
+		if len(j.Zones) > 0 && feasible == 0 {
+			zeroFit++
+		}
+	}
+	sort.Slice(excl, func(i, k int) bool {
+		if excl[i].Shape != excl[k].Shape {
+			return excl[i].Shape < excl[k].Shape
+		}
+		return excl[i].Zone < excl[k].Zone
+	})
+	return excl, zeroFit
+}
+
 // validatePlaceable returns an error listing jobs that could never be admitted:
 // their CPUCost exceeds every eligible region's usable budget (limit × safety,
 // min across the job's budget keys). Quarantined jobs are skipped (never launch).

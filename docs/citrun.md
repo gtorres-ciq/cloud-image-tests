@@ -173,9 +173,19 @@ go run ./cmd/citrun status -watch runs/20260810-120000
 ```
 
 Prints counts by job status, per-region running-job/CPU occupancy, any
-active stockout/quota cooldowns with seconds remaining, and a rough ETA —
-all derived from that run's `state.json` alone, so it's safe to run in a
-second terminal alongside a live `run`/`resume`. Without `-watch` it prints
+active stockout/quota cooldowns with seconds remaining, the excluded-zone
+audit, and a rough ETA — all derived from that run's `state.json` and its
+saved `citrun.yaml`, so it's safe to run in a second terminal alongside a
+live `run`/`resume`.
+
+The excluded-zone audit lists each unique shape×zone placement the scheduler
+silently skips because the zone's region can never fit the shape under the
+configured budgets (the same check `fitsConfiguredBudget` applies when
+counting stockout sweeps). Busy-but-feasible zones are never listed. Each
+entry is a candidate for removing the zone from its `zone_set` or raising
+the family budget in that region; entries whose family key is absent from
+the region's budget row are flagged as `missing`. Run dirs saved before this
+audit existed have no `citrun.yaml` and skip the section. Without `-watch` it prints
 once and exits (`0`, or `2` if the run directory doesn't have a readable
 `state.json`). With `-watch` it clears the screen and reprints every 5s
 until you kill it (Ctrl-C) or it hits a read error.
