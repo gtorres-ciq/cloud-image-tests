@@ -148,6 +148,36 @@ func TestStockoutCompletedSweepLimitAndResume(t *testing.T) {
 	}
 }
 
+// TestStockoutRetryConfigOverride: the retries block caps sweeps and sets
+// the cooldown, overriding the built-in defaults (4 sweeps, 120s base).
+func TestStockoutRetryConfigOverride(t *testing.T) {
+	cfgYAML := schedConfig + `
+retries:
+  stockout: 2
+  cooldown_base: 5s
+`
+	j := job("j", 16)
+	j.Zones = []string{"r1-a", "r2-a"}
+	s, _, clk, st := schedFixture(t, cfgYAML, []Job{j})
+	completeAttempt(s, j, "r1-a", ClassStockout)
+	completeAttempt(s, j, "r2-a", ClassStockout)
+	if st.Jobs[j.ID].Status != StatusQueued {
+		t.Fatalf("first completed sweep must only requeue, got %s", st.Jobs[j.ID].Status)
+	}
+	// Cooldown is the overridden base: 5s * 2^0, not the 120s default.
+	if until := st.Cooldowns["stockout|"+j.ID]; !until.After(clk.Now().Add(4*time.Second)) || until.After(clk.Now().Add(6*time.Second)) {
+		t.Fatalf("cooldown = %v, want now+5s", until)
+	}
+	clk.Advance(6 * time.Second)
+	// Cooldown expiry clears the sweep (scheduler.go pickZone); the second
+	// completed sweep requires stocking out both zones again.
+	completeAttempt(s, j, s.pickZone(j, avoidZone(st.Jobs[j.ID])), ClassStockout)
+	completeAttempt(s, j, s.pickZone(j, avoidZone(st.Jobs[j.ID])), ClassStockout)
+	if st.Jobs[j.ID].Status != StatusFailedInfra {
+		t.Fatalf("stockout: 2 must fail after the second completed sweep, got %s", st.Jobs[j.ID].Status)
+	}
+}
+
 func TestStockoutBusyRegionIsNotExhausted(t *testing.T) {
 	j := job("j", 16)
 	s, _, _, st := schedFixture(t, schedConfig, []Job{j})

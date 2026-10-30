@@ -23,14 +23,16 @@ func (realClock) Now() time.Time                         { return time.Now() }
 func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) }
 
 const (
-	capStockout     = 4 // completed placement sweeps, not individual attempts
-	capQuota        = 4
-	capTimeout      = 2
-	capError        = 2
-	capInfra        = 3 // Google API errors (412 fingerprint races, 503/502) usually clear on retry
-	cooldownBase    = 120 * time.Second
-	quotaPenaltyDur = 10 * time.Minute
-	idleTick        = 5 * time.Second
+	// Defaults for the yaml-configurable retry knobs (config.go Retries);
+	// overridden per-config by the `retries:` block.
+	defaultCapStockout  = 4 // completed placement sweeps, not individual attempts
+	defaultCapQuota     = 4
+	defaultCapTimeout   = 2
+	defaultCapError     = 2
+	defaultCapInfra     = 3 // Google API errors (412 fingerprint races, 503/502) usually clear on retry
+	defaultCooldownBase = 120 * time.Second
+	quotaPenaltyDur     = 10 * time.Minute
+	idleTick            = 5 * time.Second
 )
 
 type completion struct {
@@ -236,11 +238,11 @@ func (s *Scheduler) recordStockout(rec *JobRecord, zone string) {
 		}
 	}
 	rec.StockoutRounds++
-	if rec.StockoutRounds >= capStockout {
+	if rec.StockoutRounds >= s.cfg.Retries.Stockout {
 		rec.Status = StatusFailedInfra
 		return
 	}
-	s.st.Cooldowns["stockout|"+rec.Job.ID] = s.clock.Now().Add(cooldownBase * time.Duration(1<<(rec.StockoutRounds-1)))
+	s.st.Cooldowns["stockout|"+rec.Job.ID] = s.clock.Now().Add(time.Duration(s.cfg.Retries.CooldownBase) * time.Duration(1<<(rec.StockoutRounds-1)))
 }
 
 func (s *Scheduler) charge(job Job, region string, sign int) {
@@ -355,13 +357,13 @@ func (s *Scheduler) handleCompletion(c completion) {
 	case ClassQuota:
 		s.bumpCooldown("quota|"+rec.Job.BudgetKey, zoneRegion(c.zone))
 		s.quotaPenalty[rec.Job.BudgetKey+"|"+zoneRegion(c.zone)] = s.clock.Now().Add(quotaPenaltyDur)
-		rec.Status = requeueOr(ClassQuota, capQuota)
+		rec.Status = requeueOr(ClassQuota, s.cfg.Retries.Quota)
 	case ClassTimeout:
-		rec.Status = requeueOr(ClassTimeout, capTimeout)
+		rec.Status = requeueOr(ClassTimeout, s.cfg.Retries.Timeout)
 	case ClassInfra:
-		rec.Status = requeueOr(ClassInfra, capInfra)
+		rec.Status = requeueOr(ClassInfra, s.cfg.Retries.Infra)
 	default:
-		rec.Status = requeueOr(ClassError, capError)
+		rec.Status = requeueOr(ClassError, s.cfg.Retries.Error)
 	}
 	s.persist(c.jobID, "completed", c.zone, len(rec.Attempts), c.res.Classification+" "+c.res.Detail)
 }
@@ -376,7 +378,7 @@ func (s *Scheduler) bumpCooldown(series, region string) {
 	if hits > 6 {
 		hits = 6 // cap backoff at 120s * 2^5 = 64m; counter keeps counting, delay doesn't
 	}
-	d := cooldownBase * (1 << (hits - 1))
+	d := time.Duration(s.cfg.Retries.CooldownBase) * (1 << (hits - 1))
 	s.st.Cooldowns[key] = s.clock.Now().Add(d)
 }
 

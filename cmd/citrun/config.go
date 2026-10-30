@@ -118,6 +118,18 @@ type SVConfig struct {
 	Families  []Family `yaml:"families"`
 }
 
+// Retries holds the per-job retry caps and backoff base. Caps count
+// scheduler-classified failures (stockout counts completed zone sweeps, the
+// rest count attempts); see scheduler.go for the state machine.
+type Retries struct {
+	Stockout     int      `yaml:"stockout"`
+	Quota        int      `yaml:"quota"`
+	Timeout      int      `yaml:"timeout"`
+	Infra        int      `yaml:"infra"`
+	Error        int      `yaml:"error"`
+	CooldownBase Duration `yaml:"cooldown_base"`
+}
+
 type Config struct {
 	Project         string                 `yaml:"project"`
 	ImagePrefix     string                 `yaml:"image_prefix"`
@@ -133,6 +145,7 @@ type Config struct {
 	Quarantine      []QuarantineEntry      `yaml:"quarantine"`
 	Tiers           map[string][]TierEntry `yaml:"tiers"`
 	ShapeValidation SVConfig               `yaml:"shapevalidation"`
+	Retries         Retries                `yaml:"retries"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -159,6 +172,26 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.SafetyFactor == -1 {
 		cfg.SafetyFactor = 0.8
 	}
+	// Retry caps of 0 are meaningless, so zero doubles as "absent" (no
+	// sentinel needed, unlike safety_factor above).
+	if cfg.Retries.Stockout == 0 {
+		cfg.Retries.Stockout = defaultCapStockout
+	}
+	if cfg.Retries.Quota == 0 {
+		cfg.Retries.Quota = defaultCapQuota
+	}
+	if cfg.Retries.Timeout == 0 {
+		cfg.Retries.Timeout = defaultCapTimeout
+	}
+	if cfg.Retries.Infra == 0 {
+		cfg.Retries.Infra = defaultCapInfra
+	}
+	if cfg.Retries.Error == 0 {
+		cfg.Retries.Error = defaultCapError
+	}
+	if cfg.Retries.CooldownBase == 0 {
+		cfg.Retries.CooldownBase = Duration(defaultCooldownBase)
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -176,6 +209,24 @@ func zoneRegion(zone string) string {
 func (c *Config) Validate() error {
 	if c.Project == "" {
 		return fmt.Errorf("project is required")
+	}
+	if c.Retries.Stockout < 1 {
+		return fmt.Errorf("retries.stockout must be >= 1, got %d", c.Retries.Stockout)
+	}
+	if c.Retries.Quota < 1 {
+		return fmt.Errorf("retries.quota must be >= 1, got %d", c.Retries.Quota)
+	}
+	if c.Retries.Timeout < 1 {
+		return fmt.Errorf("retries.timeout must be >= 1, got %d", c.Retries.Timeout)
+	}
+	if c.Retries.Infra < 1 {
+		return fmt.Errorf("retries.infra must be >= 1, got %d", c.Retries.Infra)
+	}
+	if c.Retries.Error < 1 {
+		return fmt.Errorf("retries.error must be >= 1, got %d", c.Retries.Error)
+	}
+	if c.Retries.CooldownBase <= 0 {
+		return fmt.Errorf("retries.cooldown_base must be > 0, got %v", c.Retries.CooldownBase)
 	}
 	if c.SafetyFactor <= 0 || c.SafetyFactor > 1 {
 		return fmt.Errorf("safety_factor must be in (0,1], got %v", c.SafetyFactor)

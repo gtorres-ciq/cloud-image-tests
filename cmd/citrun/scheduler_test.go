@@ -423,8 +423,8 @@ func TestInfraRetriesThenFailsInfra(t *testing.T) {
 		{Classification: ClassInfra, Detail: "googleapi: Error 412: conditionNotMet"},
 	}
 	waitDone(t, runSched(t, s))
-	if st.Jobs["j1"].Status != StatusFailedInfra || len(st.Jobs["j1"].Attempts) != capInfra {
-		t.Fatalf("want failed_infra after %d attempts: %s / %d", capInfra, st.Jobs["j1"].Status, len(st.Jobs["j1"].Attempts))
+	if st.Jobs["j1"].Status != StatusFailedInfra || len(st.Jobs["j1"].Attempts) != defaultCapInfra {
+		t.Fatalf("want failed_infra after %d attempts: %s / %d", defaultCapInfra, st.Jobs["j1"].Status, len(st.Jobs["j1"].Attempts))
 	}
 }
 
