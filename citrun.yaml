@@ -15,19 +15,18 @@ budgets:
   #   (quotaInfos/CPUS-PER-VM-FAMILY-per-project-{region,zone}); these are NOT
   #   exposed by regions describe or validateOnly inserts.
   #   C4/C4A/C4D/N4/C3D are 300/300/500/1500-3000/500 in every non-us-central1
-  #   region EXCEPT europe-west4, where the C4A quota was raised to 960 on
-  #   2026-10-14 — big enough for every c4a-highmem-96-metal suite, so no
-  #   arm-metal jobs need us-central1 anymore (zone_set metal-c4a-big).
+  #   region EXCEPT europe-west4, where the C4A quota is 1760 (verified
+  #   2026-10-30 via the Cloud Quotas API after a second increase) — big
+  #   enough for every c4a-highmem-96-metal suite, so no arm-metal jobs need
+  #   us-central1 (zone_set metal-c4a-big).
   regions:
     europe-west1:    {CPUS: 3000, C3_CPUS: 1920, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128}
-    # C4A quota increase in europe-west4 to 960 verified 2026-10-14 via the
-    # Cloud Quotas API (usable 864 covers the 768-CPU metadata suite); with it
-    # arm-metal no longer needs us-central1. C3 metal may still use it
-    # despite its historical stockouts (49% stockout+quota rate; see
-    # gce-capacity-transient-failure-report.md).
+    # europe-west4 C4A quota is 1760 (verified 2026-10-30 via the Cloud Quotas
+    # API). The stockout caution for C3 metal still applies
+    # (49% stockout+quota rate; see gce-capacity-transient-failure-report.md).
     us-central1:     {CPUS: 3000, C3_CPUS: 1920, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 1760, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, E2_CPUS: 600, C2_CPUS: 500, C2D_CPUS: 1000, T2A_CPUS: 300, T2D_CPUS: 128}
     europe-west3:    {CPUS: 3000, N2_CPUS: 1500, N2D_CPUS: 1500, E2_CPUS: 600, C3_CPUS: 300, T2A_CPUS: 300, T2D_CPUS: 128, C4A_CPUS: 300}
-    europe-west4:    {CPUS: 3000, C3_CPUS: 300, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 960, C4D_CPUS: 500, N2_CPUS: 1500, N2D_CPUS: 3000, N4_CPUS: 1500, E2_CPUS: 600, T2A_CPUS: 300, T2D_CPUS: 128}
+    europe-west4:    {CPUS: 3000, C3_CPUS: 300, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 1760, C4D_CPUS: 500, N2_CPUS: 1500, N2D_CPUS: 3000, N4_CPUS: 1500, E2_CPUS: 600, T2A_CPUS: 300, T2D_CPUS: 128}
     asia-southeast1: {CPUS: 3000, C3_CPUS: 300, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, C4D_CPUS: 500, N2_CPUS: 1500, N2D_CPUS: 3000, N4_CPUS: 1500, E2_CPUS: 600, T2A_CPUS: 300, T2D_CPUS: 128}
     us-east1:        {CPUS: 3000, C3_CPUS: 300, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, E2_CPUS: 600, T2A_CPUS: 300}
     us-east4:        {CPUS: 3000, C3_CPUS: 1920, C3D_CPUS: 500, C4_CPUS: 300, C4A_CPUS: 300, N2_CPUS: 3000, N2D_CPUS: 3000, N4_CPUS: 3000, T2A_CPUS: 300}
@@ -77,11 +76,11 @@ zone_sets:
   # europe-west4-a/b/c, asia-northeast1-a/b, us-east4-c, us-east5-b, us-west4-a/c.
   # C4A quota is 300 in europe-west3/us-east4/us-east5, so only 1-VM suites
   # (96 CPU) run in this set; the multi-VM suites go through the
-  # metal-c4a-big zone_set rule below (europe-west4 raised to 960).
+  # metal-c4a-big zone_set rule below (europe-west4 raised to 1760).
   metal-c4a:    [europe-west4-a, europe-west4-b, europe-west4-c, europe-west3-a, europe-west3-b, us-east4-c, us-east5-b]
-  # europe-west4 is the only non-us-central1 region whose C4A quota (960,
-  # usable 864) fits the 6-8 VM c4a-highmem-96-metal suites. Quota verified
-  # 2026-10-14 via the Cloud Quotas API after a quota increase.
+  # europe-west4 is the only non-us-central1 region whose C4A quota (1760,
+  # usable 1584) fits the 6-8 VM c4a-highmem-96-metal suites. Verified
+  # 2026-10-30 via the Cloud Quotas API.
   metal-c4a-big: [europe-west4-a, europe-west4-b, europe-west4-c]
   u4s:          [us-south1-d, us-south1-e]
   u4c:          [us-south1-d, us-south1-e]
@@ -213,7 +212,7 @@ rules:
   - keep_only: {shapes: [c4a-highmem-96-metal], suites: [suspendresume, licensevalidation, loadbalancer, metadata, packagevalidation]}
   - drop: {shapes: [c4a-highmem-96-metal], images: ["rocky-linux-8*"]}
   # C4A quota is 300 in europe-west3/us-east4/us-east5 (fits only 1-VM suites
-  # at 96 CPU); europe-west4 has 960. Splits the arm-metal matrix:
+  # at 96 CPU); europe-west4 has 1760. Splits the arm-metal matrix:
   # loadbalancer/metadata/packagevalidation -> europe-west4, the 1-VM
   # suspendresume/licensevalidation suites spread across europe/us-east4/us-east5.
   - zone_set: {shapes: [c4a-highmem-96-metal], suites: [loadbalancer, metadata, packagevalidation], set: metal-c4a-big}
