@@ -25,39 +25,48 @@ var statusOrder = []JobStatus{
 	StatusPassed, StatusFailedReal, StatusFailedInfra, StatusQuarantined, StatusRunning, StatusQueued,
 }
 
-// junitDoc is the minimal shape needed to pull the first failure message out
-// of a JUnit XML report.
+// junitDoc is the minimal shape needed to pull failing testcases and their
+// first failure detail out of a JUnit XML report.
 type junitDoc struct {
 	Suites []struct {
 		Cases []struct {
 			Name    string `xml:"name,attr"`
 			Failure *struct {
 				Message string `xml:"message,attr"`
+				Data    string `xml:",cdata"`
 			} `xml:"failure"`
 		} `xml:"testcase"`
 	} `xml:"testsuite"`
 }
 
-// junitFailureMessage reads runDir/jobs/<jobID>/junit.xml and returns
-// "<testcase name>: <failure message>" for the first failing case, or "" if
-// the file is missing, unparseable, or has no failure.
-func junitFailureMessage(runDir, jobID string) string {
+// junitFailedTests reads runDir/jobs/<jobID>/junit.xml and returns the names
+// of every failing testcase in document order plus a detail string from the
+// first failure (its CDATA body, falling back to the message attribute).
+// Returns nil names when the file is missing, unparseable, or has no failure.
+func junitFailedTests(runDir, jobID string) (names []string, detail string) {
 	raw, err := os.ReadFile(filepath.Join(runDir, "jobs", jobID, "junit.xml"))
 	if err != nil {
-		return ""
+		return nil, ""
 	}
 	var doc junitDoc
 	if xml.Unmarshal(raw, &doc) != nil {
-		return ""
+		return nil, ""
 	}
 	for _, s := range doc.Suites {
 		for _, c := range s.Cases {
-			if c.Failure != nil {
-				return c.Name + ": " + c.Failure.Message
+			if c.Failure == nil {
+				continue
+			}
+			names = append(names, c.Name)
+			if detail == "" {
+				detail = strings.TrimSpace(c.Failure.Data)
+				if detail == "" {
+					detail = c.Failure.Message
+				}
 			}
 		}
 	}
-	return ""
+	return names, detail
 }
 
 // attemptWallSum sums WallSeconds across attempts. Attach-resolved attempts
@@ -91,7 +100,7 @@ func BuildReport(st *RunState, runDir string, topN int) (string, string) {
 	writeSlowestPassed(&md, st, topN)
 	writeFlakes(&md, st)
 	writeStockouts(&md, st)
-	return md.String(), buildCSV(st)
+	return md.String(), buildCSV(st, runDir)
 }
 
 func writePerConfigSummary(md *strings.Builder, st *RunState) {
@@ -132,11 +141,22 @@ func writeRealFailures(md *strings.Builder, st *RunState, runDir string) {
 			continue
 		}
 		found = true
-		msg := junitFailureMessage(runDir, id)
-		if msg == "" {
-			msg = "(no junit failure message found)"
+		names, detail := junitFailedTests(runDir, id)
+		if detail == "" {
+			detail = "(no junit failure message found)"
 		}
-		fmt.Fprintf(md, "- %s (%s/%s/%s/%s): %s\n", id, rec.Job.Config, rec.Job.BaseImage, rec.Job.Shape, rec.Job.Suite, msg)
+		fmt.Fprintf(md, "- %s (%s/%s/%s/%s): %s\n", id, rec.Job.Config, rec.Job.BaseImage, rec.Job.Shape, rec.Job.Suite, detail)
+		switch {
+		case len(names) > 1:
+			for _, n := range names {
+				fmt.Fprintf(md, "    %s\n", n)
+			}
+			fmt.Fprintf(md, "    (%d failed tests)\n", len(names))
+		case len(names) == 1:
+			// Single failing testcase already named in the detail line.
+		default:
+			fmt.Fprintln(md, "    (no junit failure details)")
+		}
 	}
 	if !found {
 		fmt.Fprintln(md, "none")
@@ -259,8 +279,9 @@ func writeCountSection(md *strings.Builder, header string, counts map[string]int
 
 // buildCSV renders one row per job in st.Order. encoding/csv handles
 // quoting so a comma or quote inside a human-written quarantine reason or a
-// regex-extracted attempt detail can't corrupt the column count.
-func buildCSV(st *RunState) string {
+// regex-extracted attempt detail can't corrupt the column count. runDir is
+// needed to read junit failure details for failed_real rows.
+func buildCSV(st *RunState, runDir string) string {
 	var sb strings.Builder
 	w := csv.NewWriter(&sb)
 	w.Write([]string{"config", "image", "shape", "suite", "status", "attempts", "wall_seconds", "zones", "reason"})
@@ -272,7 +293,20 @@ func buildCSV(st *RunState) string {
 		switch rec.Status {
 		case StatusQuarantined:
 			reason = rec.Job.Quarantined
-		case StatusFailedReal, StatusFailedInfra:
+		case StatusFailedReal:
+			// Prefer junit data: "<first failing test>: <detail>" reads better
+			// in a spreadsheet than the classifier's raw detail alone.
+			if names, detail := junitFailedTests(runDir, id); len(names) > 0 {
+				reason = names[0]
+				if detail != "" {
+					reason += ": " + detail
+				}
+				break
+			}
+			if n := len(rec.Attempts); n > 0 {
+				reason = rec.Attempts[n-1].Detail
+			}
+		case StatusFailedInfra:
 			if n := len(rec.Attempts); n > 0 {
 				reason = rec.Attempts[n-1].Detail
 			}

@@ -106,6 +106,20 @@ func TestConvertToTestSuite(t *testing.T) {
 	}
 }
 
+// TestConvertToTestSuiteClassname is a regression test for the classname
+// loss bug: Classname must be set on the appended testcases, not on a loop
+// copy, so every consumer (Jenkins test grouping) sees the suite classname.
+func TestConvertToTestSuiteClassname(t *testing.T) {
+	for _, classname := range []string{"imageboot-rocky-linux-9", ""} {
+		got := convertToTestSuite([]string{testPass, testFail}, classname)
+		for _, tc := range got.Testcases {
+			if tc.Classname != classname {
+				t.Errorf("testcase %s classname = %q, want %q", tc.Name, tc.Classname, classname)
+			}
+		}
+	}
+}
+
 func TestConvertToTestCase(t *testing.T) {
 	tests := []struct {
 		name   string

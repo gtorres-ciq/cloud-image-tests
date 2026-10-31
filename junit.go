@@ -32,9 +32,13 @@ func convertToTestSuite(results []string, classname string) junit.Testsuite {
 		if err != nil {
 			continue
 		}
-		ts.Testcases = append(ts.Testcases, tcs...)
-		for _, tc := range tcs {
-			tc.Classname = classname
+		// Set Classname on the slice elements BEFORE appending: the manager
+		// used to mutate a loop copy after append, so testcases (notably
+		// passes, whose other paths set Classname pre-append) kept an empty
+		// classname and Jenkins grouped them into an unlinked "(empty)" class.
+		for i := range tcs {
+			tcs[i].Classname = classname
+			tc := tcs[i]
 			if i, err := strconv.ParseFloat(tc.Time, 64); err == nil {
 				runtime += i
 			}
@@ -47,6 +51,7 @@ func convertToTestSuite(results []string, classname string) junit.Testsuite {
 				ts.Failures++
 			}
 		}
+		ts.Testcases = append(ts.Testcases, tcs...)
 	}
 	ts.Time = fmt.Sprintf("%.3f", runtime)
 	return ts
