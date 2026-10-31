@@ -351,7 +351,14 @@ func (s *Scheduler) handleCompletion(c completion) {
 	case ClassPass:
 		rec.Status = StatusPassed
 	case ClassFail:
-		rec.Status = StatusFailedReal
+		// failure: N means N retries after the first real failure (N+1
+		// total fail attempts). Exhaustion ends failed_real, not
+		// failed_infra, and no cooldown: a flake is not a placement problem.
+		if n := countClass(rec.Attempts, ClassFail); n < s.cfg.Retries.Failure+1 {
+			rec.Status = StatusQueued
+		} else {
+			rec.Status = StatusFailedReal
+		}
 	case ClassStockout:
 		s.recordStockout(rec, c.zone)
 	case ClassQuota:

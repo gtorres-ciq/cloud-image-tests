@@ -150,11 +150,12 @@ retries:
   timeout: 2         # job-timeout attempts
   infra: 3           # Google API errors (412 races, 5xx)
   error: 2           # unclassified errors
+  failure: 0         # retries after a real test failure
   cooldown_base: 120s
 ```
 
 Defaults: `stockout` 4, `quota` 4, `timeout` 2, `infra` 3, `error` 2,
-`cooldown_base` 120s. Validation: every cap ≥ 1, `cooldown_base` > 0.
+`failure` 0, `cooldown_base` 120s. Validation: every cap ≥ 1, `cooldown_base` > 0.
 
 Semantics worth knowing:
 
@@ -168,5 +169,11 @@ Semantics worth knowing:
   before sweep n+1 (2m, 4m, 8m at the default base). The same base drives the
   quota cooldown, which additionally doubles per consecutive hit per region
   and is clamped at 64m.
+- **`failure` counts retries, not attempts** (unlike the other caps): a job
+  that fails is requeued up to `failure` times, so `failure: 1` means two
+  total attempts. Failed retries re-admit immediately (no cooldown, no zone
+  avoidance — a flake is not a placement problem). When the cap is reached
+  the job ends as `failed_real`, not `failed_infra`. `failure: 0` (the
+  default) preserves the classic behavior of never retrying a real failure.
 - **Counters reset when the config changes** mid-run (config refresh discards
   stockout sweeps/cooldowns) and on explicit resume of an exhausted job.

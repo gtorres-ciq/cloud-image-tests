@@ -120,13 +120,16 @@ type SVConfig struct {
 
 // Retries holds the per-job retry caps and backoff base. Caps count
 // scheduler-classified failures (stockout counts completed zone sweeps, the
-// rest count attempts); see scheduler.go for the state machine.
+// rest count attempts); see scheduler.go for the state machine. Failure
+// counts retries after the first real failure (0 = never retry a fail);
+// exhausted fail retries end as failed_real, not failed_infra.
 type Retries struct {
 	Stockout     int      `yaml:"stockout"`
 	Quota        int      `yaml:"quota"`
 	Timeout      int      `yaml:"timeout"`
 	Infra        int      `yaml:"infra"`
 	Error        int      `yaml:"error"`
+	Failure      int      `yaml:"failure"`
 	CooldownBase Duration `yaml:"cooldown_base"`
 }
 
@@ -224,6 +227,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Retries.Error < 1 {
 		return fmt.Errorf("retries.error must be >= 1, got %d", c.Retries.Error)
+	}
+	if c.Retries.Failure < 0 {
+		return fmt.Errorf("retries.failure must be >= 0, got %d", c.Retries.Failure)
 	}
 	if c.Retries.CooldownBase <= 0 {
 		return fmt.Errorf("retries.cooldown_base must be > 0, got %v", c.Retries.CooldownBase)

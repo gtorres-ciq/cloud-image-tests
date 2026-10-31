@@ -481,3 +481,63 @@ func TestDrainStopsAdmissionAndRequeuesAborted(t *testing.T) {
 		t.Errorf("attempt result = %q, want aborted", got)
 	}
 }
+
+func TestFailNotRetriedByDefault(t *testing.T) {
+	j := job("j", 16)
+	s, _, _, st := schedFixture(t, schedConfig, []Job{j})
+	completeAttempt(s, j, "r1-a", ClassFail)
+	if st.Jobs[j.ID].Status != StatusFailedReal {
+		t.Fatalf("failure: 0 must end the job immediately, got %s", st.Jobs[j.ID].Status)
+	}
+	if s.cfg.Retries.Failure != 0 {
+		t.Fatalf("default retries.failure = %d, want 0", s.cfg.Retries.Failure)
+	}
+}
+
+func TestFailRetryConfigOverride(t *testing.T) {
+	// failure: 1 means one retry after the first failure (two total attempts).
+	cfgYAML := schedConfig + `
+retries:
+  failure: 1
+`
+	j := job("j", 16)
+	s, _, _, st := schedFixture(t, cfgYAML, []Job{j})
+	completeAttempt(s, j, "r1-a", ClassFail)
+	if st.Jobs[j.ID].Status != StatusQueued {
+		t.Fatalf("first fail must requeue, got %s", st.Jobs[j.ID].Status)
+	}
+	if z := s.pickZone(j, avoidZone(st.Jobs[j.ID])); z == "" {
+		t.Fatal("failed job not re-admitted after failure")
+	}
+	completeAttempt(s, j, "r1-a", ClassFail)
+	if st.Jobs[j.ID].Status != StatusFailedReal {
+		t.Fatalf("exhausted fail retries must end failed_real, got %s", st.Jobs[j.ID].Status)
+	}
+	if _, ok := st.Cooldowns["stockout|"+j.ID]; ok {
+		t.Fatal("fail retry must not set a cooldown")
+	}
+}
+
+func TestFailRetryPassesOnSecondAttempt(t *testing.T) {
+	cfgYAML := schedConfig + `
+retries:
+  failure: 1
+`
+	j := job("j", 16)
+	s, _, _, st := schedFixture(t, cfgYAML, []Job{j})
+	completeAttempt(s, j, "r1-a", ClassFail)
+	completeAttempt(s, j, "r1-a", ClassPass)
+	if st.Jobs[j.ID].Status != StatusPassed {
+		t.Fatalf("flake that passes on retry must pass, got %s", st.Jobs[j.ID].Status)
+	}
+}
+
+func TestFailRetryNegativeRejected(t *testing.T) {
+	cfgYAML := schedConfig + `
+retries:
+  failure: -1
+`
+	if _, err := LoadConfig(writeTemp(t, cfgYAML)); err == nil {
+		t.Fatal("negative retries.failure must be rejected")
+	}
+}
